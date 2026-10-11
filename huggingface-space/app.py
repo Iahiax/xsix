@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import gradio as gr
+import spaces
 from fastapi import FastAPI, Header, HTTPException, Request
 
 from arabic_evaluation import (
@@ -38,13 +39,44 @@ from model_runtime import (
     PROJECT_MODEL_ID,
     PROJECT_MODEL_REVISION,
     SAFETY_SYSTEM_PROMPT,
-    evaluate_candidate_responses,
-    generate,
+    evaluate_candidate_responses as _evaluate_candidate_responses,
+    generate as _generate_model_response,
     model_status,
 )
-from trainer import train_candidate
+from trainer import train_candidate as _train_candidate
 from pathlib import Path
 from huggingface_hub import HfApi, hf_hub_download
+
+
+@spaces.GPU(duration=120)
+def generate(
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None = None,
+    max_new_tokens: int = 512,
+    temperature: float = 0.2,
+) -> dict[str, Any]:
+    """Run model inference through the entrypoint's discoverable ZeroGPU wrapper."""
+    return _generate_model_response(
+        messages,
+        tools=tools,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+    )
+
+
+@spaces.GPU(duration=240)
+def evaluate_candidate_responses(
+    candidate_model_id: str,
+    candidate_revision: str,
+) -> dict[str, dict[str, str]]:
+    """Run candidate evaluation through the entrypoint's ZeroGPU wrapper."""
+    return _evaluate_candidate_responses(candidate_model_id, candidate_revision)
+
+
+@spaces.GPU(duration=240)
+def train_candidate(uploaded_jsonl: str | None = None) -> str:
+    """Run LoRA candidate training through the entrypoint's ZeroGPU wrapper."""
+    return _train_candidate(uploaded_jsonl)
 
 
 def _require_ready() -> None:

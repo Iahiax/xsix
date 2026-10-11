@@ -71,6 +71,16 @@ def install_app_import_stubs():
     fastapi.HTTPException = HttpException
     fastapi.Request = type("Request", (), {})
     gradio = FakeGradio("gradio")
+    spaces = types.ModuleType("spaces")
+
+    def gpu_decorator(**options):
+        def decorate(function):
+            function.__spaces_gpu_duration__ = options.get("duration")
+            return function
+
+        return decorate
+
+    spaces.GPU = gpu_decorator
     huggingface_hub = types.ModuleType("huggingface_hub")
     huggingface_hub.HfApi = Mock()
     huggingface_hub.hf_hub_download = Mock()
@@ -90,6 +100,7 @@ def install_app_import_stubs():
         {
             "fastapi": fastapi,
             "gradio": gradio,
+            "spaces": spaces,
             "huggingface_hub": huggingface_hub,
             "model_runtime": runtime,
             "trainer": trainer,
@@ -114,6 +125,11 @@ class SpaceAccessTests(unittest.TestCase):
         self.env_patch.start()
         self.addCleanup(self.env_patch.stop)
         self.runtime.generate.reset_mock()
+
+    def test_gpu_callbacks_are_discoverable_from_space_entrypoint(self):
+        self.assertEqual(self.app.generate.__spaces_gpu_duration__, 120)
+        self.assertEqual(self.app.evaluate_candidate_responses.__spaces_gpu_duration__, 240)
+        self.assertEqual(self.app.train_candidate.__spaces_gpu_duration__, 240)
 
     def test_missing_space_api_secret_is_unavailable_and_does_not_generate(self):
         os.environ.pop("SPACE_API_TOKEN", None)

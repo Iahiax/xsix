@@ -8,8 +8,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from spaces import GPU
-
 from arabic_evaluation import held_out_prompt_keys, normalize_text
 
 BASE_MODEL_ID = os.getenv("BASE_MODEL_ID", "Qwen/Qwen3-8B")
@@ -124,7 +122,6 @@ def _tokenized_examples(tokenizer: Any, examples: list[dict[str, str]]) -> list[
     return prepared
 
 
-@GPU(duration=240)
 def train_candidate(uploaded_jsonl: str | None = None) -> str:
     """Train a short LoRA candidate from explicitly curated corrections."""
     write_token = os.getenv("HF_WRITE_TOKEN") or os.getenv("HF_TOKEN")

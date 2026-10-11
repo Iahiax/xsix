@@ -6,8 +6,6 @@ import re
 import threading
 from typing import Any
 
-from spaces import GPU
-
 from arabic_evaluation import (
     EVALUATION_CASES,
     model_artifact_fingerprint,
@@ -223,7 +221,6 @@ def _generate_loaded_model(
     return {"content": content, "tool_calls": tool_calls}
 
 
-@GPU(duration=120)
 def generate(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None = None,
@@ -246,7 +243,6 @@ def generate(
         )
 
 
-@GPU(duration=240)
 def evaluate_candidate_responses(
     candidate_model_id: str,
     candidate_revision: str,

@@ -795,238 +795,333 @@ def _save_semantic_review(
     )
 
 
-with gr.Blocks(title="مرصاد | نموذج المشروع") as demo:
-    gr.Markdown(
-        "# مرصاد — نموذج المشروع\n"
-        "يستخدم هذا الـSpace نسخة مرصاد المدرّبة فقط. لا يوجد نموذج سحابي احتياطي؛ "
-        "قبل إنشاء النسخة المدرّبة ستبقى المحادثة مقفلة."
-    )
-    with gr.Tab("المحادثة"):
-        chatbot = gr.Chatbot(height=480, label="محادثة النموذج")
-        history_state = gr.State([])
-        last_prompt = gr.State("")
-        last_reply = gr.State("")
-        message = gr.Textbox(
-            label="رسالتك",
-            placeholder="اكتب رسالتك بالعربية…",
-            max_lines=5,
+SPACE_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+:root {
+  --mersad-ink: #183b3b;
+  --mersad-deep: #102e30;
+  --mersad-paper: #f4f3ed;
+  --mersad-card: #fbfaf6;
+  --mersad-line: #d8ded5;
+  --mersad-muted: #667873;
+  --mersad-coral: #a7513a;
+  --mersad-sage: #dce8dc;
+  --mersad-gold: #d5a957;
+}
+body, .gradio-container {
+  background: var(--mersad-paper) !important;
+  color: var(--mersad-ink) !important;
+  font-family: 'IBM Plex Sans Arabic', sans-serif !important;
+}
+.gradio-container { max-width: 1160px !important; margin: 0 auto !important; }
+.gradio-container * { font-family: 'IBM Plex Sans Arabic', sans-serif; }
+.gradio-container code, .gradio-container pre, .gradio-container .dataframe-container {
+  font-family: 'IBM Plex Mono', monospace !important;
+}
+.mersad-shell { direction: rtl; }
+.mersad-hero {
+  direction: rtl; position: relative; overflow: hidden; margin: 14px 0 18px;
+  padding: clamp(20px, 4vw, 38px); border-radius: 20px;
+  color: #f3f3e9; background: var(--mersad-deep);
+  border: 1px solid #274a49;
+}
+.mersad-hero:after {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 34%;
+  background: repeating-linear-gradient(135deg, transparent 0 13px, rgba(213,169,87,.11) 13px 14px);
+  pointer-events: none;
+}
+.mersad-kicker { color: #d7bd80; font-size: 12px; font-weight: 600; letter-spacing: .11em; }
+.mersad-hero h1 { margin: 8px 0 7px; font-size: clamp(28px, 5vw, 43px); line-height: 1.2; font-weight: 700; }
+.mersad-hero p { max-width: 720px; margin: 0; color: #cbd7ce; font-size: 15px; line-height: 1.9; }
+.mersad-readiness {
+  display: flex; align-items: center; gap: 12px; margin-top: 22px; padding: 12px 14px;
+  width: fit-content; max-width: 100%; border: 1px solid rgba(228,235,222,.2);
+  border-radius: 12px; background: rgba(255,255,255,.055);
+}
+.mersad-dot { width: 9px; height: 9px; flex: 0 0 9px; border-radius: 50%; background: #e0a178; }
+.mersad-dot.ready { background: #95c9a1; }
+.mersad-readiness strong { display: block; color: #fff8e9; font-size: 14px; }
+.mersad-readiness span { display: block; color: #c4d0c9; font-size: 12px; line-height: 1.65; }
+.mersad-note {
+  direction: rtl; border: 1px solid var(--mersad-line); border-right: 4px solid var(--mersad-gold);
+  border-radius: 12px; background: var(--mersad-card); padding: 14px 16px;
+  color: var(--mersad-ink); line-height: 1.85; margin: 8px 0 16px;
+}
+.mersad-note.unavailable { border-right-color: var(--mersad-coral); background: #f7eee8; }
+.mersad-section-title { color: var(--mersad-deep); font-size: 20px; font-weight: 700; margin: 3px 0 5px; }
+.mersad-copy { color: var(--mersad-muted); line-height: 1.85; font-size: 14px; }
+.tabs { direction: rtl; border-bottom: 1px solid var(--mersad-line) !important; gap: 5px !important; }
+.tabs button { color: var(--mersad-muted) !important; border-radius: 10px 10px 0 0 !important; }
+.tabs button.selected { color: var(--mersad-deep) !important; border-bottom: 2px solid var(--mersad-coral) !important; }
+.tabitem { direction: rtl; padding-top: 17px !important; }
+.gradio-container .block, .gradio-container .form { border-color: var(--mersad-line) !important; }
+.gradio-container input, .gradio-container textarea, .gradio-container select {
+  direction: rtl; border-radius: 10px !important; background: #fffefa !important;
+}
+.gradio-container button { border-radius: 10px !important; font-weight: 600 !important; }
+.gradio-container button.primary { background: var(--mersad-ink) !important; }
+.gradio-container button.stop { background: #8d4938 !important; }
+.gradio-container .chatbot { min-height: 180px !important; }
+.gradio-container .label-wrap { direction: rtl; }
+.gradio-container .dataframe-container { overflow-x: auto !important; }
+@media (max-width: 640px) {
+  .gradio-container { padding: 0 10px !important; }
+  .mersad-hero { margin-top: 8px; border-radius: 15px; padding: 21px 18px; }
+  .mersad-hero p { font-size: 14px; }
+  .mersad-readiness { width: auto; align-items: flex-start; }
+  .tabitem { padding-top: 12px !important; }
+  .gradio-container .chatbot { min-height: 150px !important; }
+  .gradio-container .dataframe-container { max-width: calc(100vw - 34px); }
+}
+"""
+
+_initial_status = model_status()
+_chat_ready = bool(_initial_status.get("ready"))
+if _chat_ready:
+    _readiness_title = "نسخة المشروع جاهزة للمحادثة"
+    _readiness_detail = "الأوزان النشطة اجتازت التقييم المطلوب. لا يُستدعى نموذج خارجي."
+else:
+    _readiness_title = "المحادثة غير متاحة حالياً"
+    if _initial_status.get("state") == "promotion_blocked":
+        _readiness_detail = "مرشح المشروع لم يجتز بوابة التقييم والترقية؛ لن تُحمّل أوزانه ولن يُستخدم نموذج بديل."
+    elif _initial_status.get("state") == "checkpoint_load_failed":
+        _readiness_detail = "تعذّر تحميل نسخة المشروع المدرّبة. المحادثة متوقفة ولا يوجد نموذج أساسي احتياطي."
+    else:
+        _readiness_detail = "لم تُفعّل نسخة مشروع مدرّبة ومقيّمة بعد. المحادثة متوقفة ولا يوجد نموذج أساسي احتياطي."
+_readiness_class = "ready" if _chat_ready else ""
+_readiness_card = (
+    f'<div class="mersad-readiness" role="status" aria-live="polite">'
+    f'<i class="mersad-dot {_readiness_class}" aria-hidden="true"></i>'
+    f'<div><strong>{_readiness_title}</strong><span>{_readiness_detail}</span></div></div>'
+)
+
+with gr.Blocks(title="مرصاد | مساعد أبحاث التداول", css=SPACE_CSS) as demo:
+    with gr.Column(elem_classes=["mersad-shell"]):
+        gr.HTML(
+            '<header class="mersad-hero" dir="rtl">'
+            '<div class="mersad-kicker">مرصاد · مساعد أبحاث التداول</div>'
+            '<h1>قراءة أدق. قرار أهدأ.</h1>'
+            '<p>مساعد عربي مبني على نسخة المشروع المدرّبة، مع مختبر كمي ومسار مراجعة واضح. '
+            'هذه مساحة بحثية للقراءة والتحليل؛ البيانات ومصدرها يظلان ظاهرين، والتنفيذ الحقيقي مقفل.</p>'
+            f'{_readiness_card}</header>'
         )
-        send = gr.Button("إرسال", variant="primary")
-        correction = gr.Textbox(
-            label="إجابة مصححة (اختياري)",
-            placeholder="اكتب التصحيح الذي توافق على استخدامه في تدريب لاحق.",
-            lines=4,
-        )
-        save_button = gr.Button("حفظ التصحيح للتدريب اللاحق")
-        feedback_status = gr.Markdown()
-        send.click(
-            _respond,
-            inputs=[message, history_state],
-            outputs=[message, chatbot, history_state, last_prompt, last_reply],
-        )
-        message.submit(
-            _respond,
-            inputs=[message, history_state],
-            outputs=[message, chatbot, history_state, last_prompt, last_reply],
-        )
-        save_button.click(
-            _save_correction,
-            inputs=[last_prompt, correction],
-            outputs=feedback_status,
-        )
-        gr.Markdown(
-            "لا تحفظ كلمات مرور أو مفاتيح أو بيانات حسابات في المحادثة أو التصحيحات. "
-            "لا يُحفظ للتدريب إلا التصحيح الذي ترسله صراحةً."
-        )
-    with gr.Tab("مختبر التداول الكمي"):
-        gr.Markdown(
-            "هذا المختبر يجلب الأسعار التاريخية مباشرةً من واجهة Capital.com التجريبية، "
-            "ويحسب المؤشرات ومرشح MLP متعدد الطبقات ووكيل Q-learning واختباراً خارج العينة. "
-            "لا توجد أسعار اصطناعية. ZigZag للعرض الاستعادي ولا يدخل في الإشارات لتجنب تسرب المستقبل؛ "
-            "لا يعمل تداول آلي في الخلفية، والتداول الحقيقي مقفل دائماً."
-        )
-        with gr.Row():
-            quant_epic = gr.Textbox(label="Epic للسوق", placeholder="أدخل رمزاً من Capital.com")
-            quant_resolution = gr.Dropdown(
-                choices=["MINUTE_5", "MINUTE_15", "MINUTE_30", "HOUR", "HOUR_4", "DAY"],
-                value="HOUR",
-                label="الإطار الزمني",
-            )
-            quant_count = gr.Slider(minimum=100, maximum=1000, step=100, value=500, label="عدد الشموع")
-        fetch_quant_button = gr.Button("جلب بيانات حقيقية", variant="primary")
-        quant_market_state = gr.State(None)
-        quant_data_status = gr.Markdown()
-        quant_candles_table = gr.Dataframe(
-            headers=["الوقت UTC", "الإغلاق", "RSI", "MACD", "ATR", "EMA 20", "EMA 50", "SuperTrend", "ZigZag"],
-            datatype=["str", "number", "number", "number", "number", "number", "number", "number", "str"],
-            interactive=False,
-            label="آخر 100 شمعة ومؤشر",
-        )
-        fetch_quant_button.click(
-            _fetch_quant_data,
-            inputs=[quant_epic, quant_resolution, quant_count],
-            outputs=[quant_market_state, quant_data_status, quant_candles_table],
-        )
-        with gr.Row():
-            quant_equity = gr.Number(value=10_000, minimum=1, label="رصيد الاختبار (بوحدته الأصلية)")
-            quant_commission = gr.Number(value=0, minimum=0, maximum=100, label="العمولة المفترضة (نقطة أساس)")
-            quant_multiplier = gr.Number(value=1, minimum=0.000001, label="معامل العقد (تحقق منه في Capital.com)")
-        analyze_quant_button = gr.Button("تدريب المرشحين وتشغيل الاختبار", variant="primary")
-        quant_analysis_state = gr.State(None)
-        quant_analysis_status = gr.Markdown()
-        quant_report = gr.JSON(label="المؤشرات، تحقق النماذج، المخاطر، والاختبار خارج العينة")
-        analyze_quant_button.click(
-            _run_quant_analysis,
-            inputs=[quant_market_state, quant_equity, quant_commission, quant_multiplier],
-            outputs=[quant_analysis_state, quant_report, quant_analysis_status],
-        )
-        with gr.Accordion("إرسال يدوي إلى حساب Capital.com التجريبي فقط", open=False):
-            gr.Markdown(
-                "الإرسال مقفل افتراضياً. يتطلب دخول Hugging Face وحساباً في "
-                "`CAPITAL_DEMO_OPERATOR_USERNAMES`، وبيانات Capital.com التجريبية، "
-                "وتفعيل `CAPITAL_DEMO_EXECUTION_ENABLED`. يجب التحقق يدوياً من معامل العقد "
-                "في تفاصيل السوق؛ لا يُنشأ أمر تلقائي أو حي."
-            )
-            with gr.Row():
-                demo_direction = gr.Dropdown(choices=["BUY", "SELL"], value="BUY", label="اتجاه الأمر")
-                demo_size = gr.Number(value=None, minimum=0, label="حجم الأمر")
-                demo_multiplier = gr.Number(value=None, minimum=0, label="معامل العقد من تفاصيل السوق")
-            with gr.Row():
-                demo_equity = gr.Number(value=None, minimum=1, label="رصيد حساب Demo")
-                demo_risk_fraction = gr.Dropdown(
-                    choices=[0.001, 0.0025, 0.005],
-                    value=0.0025,
-                    label="حد المخاطرة لكل أمر",
+        with gr.Tabs():
+            with gr.Tab("المحادثة والتصحيحات"):
+                if not _chat_ready:
+                    gr.HTML(
+                        '<section class="mersad-note unavailable" role="status">'
+                        '<div class="mersad-section-title">المساعد لا يجيب الآن</div>'
+                        '<div>لا توجد نسخة مشروع مفعّلة وجاهزة للاستخدام. أبقينا مساحة المحادثة مغلقة '
+                        'بدلاً من عرض ردود تجريبية أو الرجوع إلى نموذج عام.</div></section>'
+                    )
+                chatbot = gr.Chatbot(
+                    height=300 if _chat_ready else 165,
+                    label="محادثة نسخة المشروع",
+                    visible=_chat_ready,
                 )
-                demo_stop = gr.Number(value=None, minimum=0, label="وقف الخسارة")
-                demo_target = gr.Number(value=None, minimum=0, label="جني الأرباح")
-            demo_confirm = gr.Checkbox(
-                label="أؤكد إرسال أمر يدوي إلى حساب Capital.com التجريبي فقط",
-                value=False,
-            )
-            demo_order_button = gr.Button("تحقق من الإشارة والمخاطر ثم أرسل", variant="stop")
-            demo_order_result = gr.JSON(label="نتيجة تأكيد حساب Demo")
-            demo_order_button.click(
-                _submit_demo_order,
-                inputs=[
-                    quant_analysis_state,
-                    demo_direction,
-                    demo_size,
-                    demo_stop,
-                    demo_target,
-                    demo_equity,
-                    demo_multiplier,
-                    demo_risk_fraction,
-                    demo_confirm,
-                ],
-                outputs=demo_order_result,
-            )
-        gr.Markdown(
-            "ملاحظة التشغيل: مساحة Hugging Face المجانية قد تدخل في الخمول؛ لذلك لا يمكن ضمان "
-            "تشغيل دائم أو تنفيذ على مدار الساعة. تُحفظ الشموع والتقارير في SQLite محلي، "
-            "لكن ملفات المساحة المجانية ليست نسخة احتياطية دائمة."
-        )
-    with gr.Tab("التدريب"):
-        gr.Markdown(
-            "يرفع هذا الزر مرشح LoRA قصير التدريب إلى مستودع خاص. "
-            "يستخدم Qwen3-8B كأساس للتدريب فقط؛ لا يُستخدم الأساس للرد على المحادثة. "
-            "لا يُرقّى المرشح تلقائياً، ويلزم تقييم مستقل قبل تفعيله."
-        )
-        training_file = gr.File(
-            label="ملف أمثلة JSONL اختياري",
-            file_types=[".jsonl"],
-            type="filepath",
-        )
-        train_button = gr.Button("إنشاء مرشح تدريب قصير", variant="primary")
-        training_status = gr.Markdown()
-        train_button.click(_train, inputs=training_file, outputs=training_status)
-    with gr.Tab("التقييم والترقية"):
-        gr.Markdown(
-            "شغّل مجموعة التقييم العربية الثابتة على المرشح والنموذج الحالي. "
-            "بعد التقييم راجع كل إجابة دلالياً وفق الإرشادات المحددة، وسجّل القبول أو الرفض. "
-            "تُسجّل هوية حساب Hugging Face الموثق تلقائياً؛ أي حالة حرجة مرفوضة أو غير مراجعة تمنع الترقية. "
-            "يُحفظ التقرير والمراجعة في مستودع المرشح الخاص. اجتياز التقييم لا يفعّل النموذج؛ "
-            "تغيير `PROJECT_MODEL_ID` يبقى خطوة يدوية."
-        )
-        candidate_id = gr.Textbox(
-            label="معرف مستودع المرشح",
-            placeholder="owner/model-candidate-…",
-        )
-        evaluate_button = gr.Button("تقييم المرشح وحفظ التقرير", variant="primary")
-        restore_button = gr.Button("تحميل التقييم المعلّق المحفوظ")
-        evaluation_report = gr.JSON(label="تقرير التقييم")
-        evaluation_status = gr.Markdown()
-        gr.Markdown(
-            "يلزم تسجيل الدخول إلى Hugging Face باستخدام حساب موجود في قائمة "
-            "`SEMANTIC_REVIEWER_USERNAMES`."
-        )
-        prompt_review_table = gr.Dataframe(
-            headers=["معرف الحالة", "صيغة السؤال", "السؤال", "إجابة المرشح"],
-            datatype=["str", "str", "str", "str"],
-            type="array",
-            interactive=False,
-            label="كل الأسئلة وإجابات المرشح — للعرض فقط",
-        )
-        semantic_reviews = gr.Dataframe(
-            headers=["معرف الحالة", "إرشادات المراجعة", "القرار (accepted/rejected)", "ملاحظات المراجع"],
-            datatype=["str", "str", "str", "str"],
-            type="array",
-            interactive=True,
-            label="قرارات المراجعة لكل حالة أساسية",
-        )
-        evaluation_state = gr.State(None)
-        save_review_button = gr.Button("حفظ المراجعة الدلالية")
-        evaluate_button.click(
-            _evaluate_candidate,
-            inputs=candidate_id,
-            outputs=[
-                evaluation_report,
-                evaluation_status,
-                prompt_review_table,
-                semantic_reviews,
-                evaluation_state,
-            ],
-        )
-        restore_button.click(
-            _load_pending_evaluation_report,
-            inputs=candidate_id,
-            outputs=[
-                evaluation_report,
-                evaluation_status,
-                prompt_review_table,
-                semantic_reviews,
-                evaluation_state,
-            ],
-        )
-        save_review_button.click(
-            _save_semantic_review,
-            inputs=[candidate_id, semantic_reviews, evaluation_state],
-            outputs=[
-                evaluation_report,
-                evaluation_status,
-                prompt_review_table,
-                semantic_reviews,
-                evaluation_state,
-            ],
-        )
-    with gr.Tab("الحالة"):
-        status = model_status()
-        gr.JSON(status, label="حالة النموذج")
-        gr.Markdown(
-            "نسخة المحادثة لا تُفعّل إلا عند ضبط PROJECT_MODEL_ID على مرشح خاص "
-            "يملك تقرير تقييم حديثاً صالحاً اجتاز الفحوص الآلية والمراجعة الدلالية "
-            "دون رفض حالة حرجة. "
-            "البيانات المحفوظة محلياً في Space قد تضيع عند إعادة التشغيل؛ أمثلة التدريب تُرسل "
-            "إلى مستودع Dataset خاص عبر HF_WRITE_TOKEN."
-        )
-    with gr.Tab("الأخطاء"):
-        error_snapshot = gr.JSON(get_error_snapshot(), label="أخطاء الخادم الأخيرة")
-        refresh_errors = gr.Button("تحديث سجل الأخطاء")
-        refresh_errors.click(get_error_snapshot, outputs=error_snapshot)
-        gr.Markdown(
-            "يعرض هذا السجل أخطاء الخادم 5xx فقط، من دون نصوص المحادثات أو بيانات الاعتماد. "
-            "السجل مؤقت في ذاكرة Space؛ لا يضمن الاحتفاظ به بعد إعادة التشغيل أو الخمول."
-        )
+                history_state = gr.State([])
+                last_prompt = gr.State("")
+                last_reply = gr.State("")
+                message = gr.Textbox(
+                    label="رسالتك",
+                    placeholder="اكتب سؤالك بالعربية…",
+                    max_lines=4,
+                    interactive=_chat_ready,
+                )
+                send = gr.Button("إرسال إلى نسخة المشروع", variant="primary", interactive=_chat_ready)
+                correction = gr.Textbox(
+                    label="تصحيح اختياري",
+                    placeholder="اكتب الإجابة المصححة التي توافق على حفظها لتدريب لاحق.",
+                    lines=3,
+                )
+                save_button = gr.Button("حفظ التصحيح للتدريب اللاحق")
+                feedback_status = gr.Markdown()
+                send.click(
+                    _respond,
+                    inputs=[message, history_state],
+                    outputs=[message, chatbot, history_state, last_prompt, last_reply],
+                )
+                message.submit(
+                    _respond,
+                    inputs=[message, history_state],
+                    outputs=[message, chatbot, history_state, last_prompt, last_reply],
+                )
+                save_button.click(
+                    _save_correction,
+                    inputs=[last_prompt, correction],
+                    outputs=feedback_status,
+                )
+                gr.Markdown(
+                    "لا تحفظ كلمات مرور أو مفاتيح أو بيانات حسابات. لا يُحفظ للتدريب إلا التصحيح "
+                    "الذي ترسله صراحةً. لا يُستخدم نموذج سحابي أو أساسي بديلاً عن نسخة المشروع."
+                )
+            with gr.Tab("المختبر الكمي"):
+                gr.Markdown(
+                    "بيانات تاريخية حقيقية من واجهة Capital.com التجريبية فقط عند نجاح الجلب؛ "
+                    "لا تُعرض أسعار تركيبية. يشمل التحليل مؤشرات ومرشح MLP ووكيل Q-learning واختباراً "
+                    "خارج العينة. ZigZag للعرض الاستعادي ولا يدخل في الإشارات. لا يوجد تداول آلي، "
+                    "والتداول الحقيقي مقفل دائماً."
+                )
+                with gr.Row():
+                    quant_epic = gr.Textbox(label="رمز السوق Epic", placeholder="أدخل رمزاً من Capital.com")
+                    quant_resolution = gr.Dropdown(
+                        choices=["MINUTE_5", "MINUTE_15", "MINUTE_30", "HOUR", "HOUR_4", "DAY"],
+                        value="HOUR",
+                        label="الإطار الزمني",
+                    )
+                    quant_count = gr.Slider(minimum=100, maximum=1000, step=100, value=500, label="عدد الشموع")
+                fetch_quant_button = gr.Button("جلب بيانات تاريخية حقيقية", variant="primary")
+                quant_market_state = gr.State(None)
+                quant_data_status = gr.Markdown()
+                quant_candles_table = gr.Dataframe(
+                    headers=["الوقت UTC", "الإغلاق", "RSI", "MACD", "ATR", "EMA 20", "EMA 50", "SuperTrend", "ZigZag"],
+                    datatype=["str", "number", "number", "number", "number", "number", "number", "number", "str"],
+                    interactive=False,
+                    label="آخر 100 شمعة ومؤشر",
+                )
+                fetch_quant_button.click(
+                    _fetch_quant_data,
+                    inputs=[quant_epic, quant_resolution, quant_count],
+                    outputs=[quant_market_state, quant_data_status, quant_candles_table],
+                )
+                with gr.Row():
+                    quant_equity = gr.Number(value=10_000, minimum=1, label="رصيد الاختبار (بوحدته الأصلية)")
+                    quant_commission = gr.Number(value=0, minimum=0, maximum=100, label="العمولة المفترضة (نقطة أساس)")
+                    quant_multiplier = gr.Number(value=1, minimum=0.000001, label="معامل العقد (تحقق منه في Capital.com)")
+                analyze_quant_button = gr.Button("تدريب المرشحين وتشغيل الاختبار", variant="primary")
+                quant_analysis_state = gr.State(None)
+                quant_analysis_status = gr.Markdown()
+                quant_report = gr.JSON(label="المؤشرات، تحقق النماذج، المخاطر، والاختبار خارج العينة")
+                analyze_quant_button.click(
+                    _run_quant_analysis,
+                    inputs=[quant_market_state, quant_equity, quant_commission, quant_multiplier],
+                    outputs=[quant_analysis_state, quant_report, quant_analysis_status],
+                )
+                with gr.Accordion("إرسال يدوي إلى حساب Capital.com التجريبي فقط", open=False):
+                    gr.Markdown(
+                        "الإرسال مقفل افتراضياً. يتطلب دخول Hugging Face وحساباً في "
+                        "`CAPITAL_DEMO_OPERATOR_USERNAMES`، وبيانات Capital.com التجريبية، "
+                        "وتفعيل `CAPITAL_DEMO_EXECUTION_ENABLED`. تحقّق يدوياً من معامل العقد؛ "
+                        "لا يُنشأ أمر تلقائي أو حي."
+                    )
+                    with gr.Row():
+                        demo_direction = gr.Dropdown(choices=["BUY", "SELL"], value="BUY", label="اتجاه الأمر")
+                        demo_size = gr.Number(value=None, minimum=0, label="حجم الأمر")
+                        demo_multiplier = gr.Number(value=None, minimum=0, label="معامل العقد من تفاصيل السوق")
+                    with gr.Row():
+                        demo_equity = gr.Number(value=None, minimum=1, label="رصيد حساب Demo")
+                        demo_risk_fraction = gr.Dropdown(
+                            choices=[0.001, 0.0025, 0.005],
+                            value=0.0025,
+                            label="حد المخاطرة لكل أمر",
+                        )
+                        demo_stop = gr.Number(value=None, minimum=0, label="وقف الخسارة")
+                        demo_target = gr.Number(value=None, minimum=0, label="جني الأرباح")
+                    demo_confirm = gr.Checkbox(
+                        label="أؤكد إرسال أمر يدوي إلى حساب Capital.com التجريبي فقط",
+                        value=False,
+                    )
+                    demo_order_button = gr.Button("تحقق من الإشارة والمخاطر ثم أرسل", variant="stop")
+                    demo_order_result = gr.JSON(label="نتيجة تأكيد حساب Demo")
+                    demo_order_button.click(
+                        _submit_demo_order,
+                        inputs=[
+                            quant_analysis_state,
+                            demo_direction,
+                            demo_size,
+                            demo_stop,
+                            demo_target,
+                            demo_equity,
+                            demo_multiplier,
+                            demo_risk_fraction,
+                            demo_confirm,
+                        ],
+                        outputs=demo_order_result,
+                    )
+                gr.Markdown(
+                    "قد تدخل مساحة Hugging Face المجانية في الخمول؛ لا يمكن ضمان تشغيل دائم أو تنفيذ على مدار الساعة. "
+                    "تُحفظ الشموع والتقارير محلياً في SQLite، لكن ملفات المساحة المجانية ليست نسخة احتياطية دائمة."
+                )
+            with gr.Tab("التدريب"):
+                gr.Markdown(
+                    "إنشاء مرشح LoRA قصير ورفعه إلى مستودع خاص. يُستخدم Qwen3-8B أساساً للتدريب فقط، "
+                    "ولا يجيب عن المحادثة. لا ترقية تلقائية؛ يلزم تقييم مستقل قبل التفعيل."
+                )
+                training_file = gr.File(
+                    label="ملف أمثلة JSONL اختياري",
+                    file_types=[".jsonl"],
+                    type="filepath",
+                )
+                train_button = gr.Button("إنشاء مرشح تدريب قصير", variant="primary")
+                training_status = gr.Markdown()
+                train_button.click(_train, inputs=training_file, outputs=training_status)
+            with gr.Tab("التقييم والمراجعة"):
+                gr.Markdown(
+                    "شغّل مجموعة التقييم العربية الثابتة، ثم راجع كل إجابة دلالياً وسجّل القبول أو الرفض. "
+                    "تُسجّل هوية حساب Hugging Face الموثق؛ أي حالة حرجة مرفوضة أو غير مراجعة تمنع الترقية. "
+                    "يُحفظ التقرير والمراجعة في مستودع المرشح الخاص. اجتياز التقييم لا يفعّل النموذج؛ "
+                    "تغيير `PROJECT_MODEL_ID` خطوة يدوية."
+                )
+                candidate_id = gr.Textbox(label="معرف مستودع المرشح", placeholder="owner/model-candidate-…")
+                with gr.Row():
+                    evaluate_button = gr.Button("تقييم المرشح وحفظ التقرير", variant="primary")
+                    restore_button = gr.Button("تحميل التقييم المعلّق المحفوظ")
+                evaluation_report = gr.JSON(label="تقرير التقييم")
+                evaluation_status = gr.Markdown()
+                gr.Markdown(
+                    "يلزم تسجيل الدخول إلى Hugging Face بحساب موجود في قائمة "
+                    "`SEMANTIC_REVIEWER_USERNAMES`."
+                )
+                prompt_review_table = gr.Dataframe(
+                    headers=["معرف الحالة", "صيغة السؤال", "السؤال", "إجابة المرشح"],
+                    datatype=["str", "str", "str", "str"],
+                    type="array",
+                    interactive=False,
+                    label="كل الأسئلة وإجابات المرشح — للعرض فقط",
+                )
+                semantic_reviews = gr.Dataframe(
+                    headers=["معرف الحالة", "إرشادات المراجعة", "القرار (accepted/rejected)", "ملاحظات المراجع"],
+                    datatype=["str", "str", "str", "str"],
+                    type="array",
+                    interactive=True,
+                    label="قرارات المراجعة لكل حالة أساسية",
+                )
+                evaluation_state = gr.State(None)
+                save_review_button = gr.Button("حفظ المراجعة الدلالية")
+                evaluate_button.click(
+                    _evaluate_candidate,
+                    inputs=candidate_id,
+                    outputs=[evaluation_report, evaluation_status, prompt_review_table, semantic_reviews, evaluation_state],
+                )
+                restore_button.click(
+                    _load_pending_evaluation_report,
+                    inputs=candidate_id,
+                    outputs=[evaluation_report, evaluation_status, prompt_review_table, semantic_reviews, evaluation_state],
+                )
+                save_review_button.click(
+                    _save_semantic_review,
+                    inputs=[candidate_id, semantic_reviews, evaluation_state],
+                    outputs=[evaluation_report, evaluation_status, prompt_review_table, semantic_reviews, evaluation_state],
+                )
+            with gr.Tab("حالة النموذج والبيانات"):
+                gr.HTML(
+                    '<div class="mersad-note"><div class="mersad-section-title">بوابة التفعيل</div>'
+                    '<div>لا تُفعّل المحادثة إلا مع مرشح خاص يملك تقرير تقييم حديثاً وصالحاً، '
+                    'اجتاز الفحوص الآلية والمراجعة الدلالية دون رفض حالة حرجة.</div></div>'
+                )
+                gr.JSON(_initial_status, label="حالة نسخة المشروع")
+                gr.Markdown(
+                    "بيانات Space المحلية قد تضيع عند إعادة التشغيل. تُرسل أمثلة التدريب إلى مستودع "
+                    "Dataset خاص عبر `HF_WRITE_TOKEN`. لا يُعدّ ظهور المساحة دليلاً على جاهزية النموذج."
+                )
+            with gr.Tab("الأخطاء"):
+                error_snapshot = gr.JSON(get_error_snapshot(), label="أخطاء الخادم الأخيرة")
+                refresh_errors = gr.Button("تحديث سجل الأخطاء")
+                refresh_errors.click(get_error_snapshot, outputs=error_snapshot)
+                gr.Markdown(
+                    "يعرض هذا السجل أخطاء الخادم 5xx فقط، من دون نصوص المحادثات أو بيانات الاعتماد. "
+                    "السجل مؤقت في ذاكرة Space؛ لا يضمن الاحتفاظ به بعد إعادة التشغيل أو الخمول."
+                )
 
 def launch_app() -> None:
     """Start the UI and JSON API together through Gradio's ZeroGPU-aware server."""

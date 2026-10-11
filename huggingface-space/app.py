@@ -64,21 +64,6 @@ def generate(
     )
 
 
-@spaces.GPU(duration=240)
-def evaluate_candidate_responses(
-    candidate_model_id: str,
-    candidate_revision: str,
-) -> dict[str, dict[str, str]]:
-    """Run candidate evaluation through the entrypoint's ZeroGPU wrapper."""
-    return _evaluate_candidate_responses(candidate_model_id, candidate_revision)
-
-
-@spaces.GPU(duration=240)
-def train_candidate(uploaded_jsonl: str | None = None) -> str:
-    """Run LoRA candidate training through the entrypoint's ZeroGPU wrapper."""
-    return _train_candidate(uploaded_jsonl)
-
-
 def _require_ready() -> None:
     status = model_status()
     if not status["ready"]:
@@ -288,6 +273,7 @@ def chat_completions(
     }
 
 
+@spaces.GPU(duration=120)
 def _respond(
     message: str,
     history: list[dict[str, str]] | None,
@@ -305,7 +291,7 @@ def _respond(
     messages = [{"role": "system", "content": SAFETY_SYSTEM_PROMPT}]
     messages.extend(previous)
     messages.append({"role": "user", "content": message.strip()})
-    result = generate(messages, max_new_tokens=512, temperature=0.2)
+    result = _generate_model_response(messages, max_new_tokens=512, temperature=0.2)
     reply = result["content"] or "لم يُرجع النموذج نصاً."
     updated = previous + [
         {"role": "user", "content": message.strip()},
@@ -324,9 +310,10 @@ def _save_correction(prompt: str, correction: str) -> str:
     return f"حُفظ مثال التصحيح الخاص: {path}. لن يبدأ التدريب تلقائياً."
 
 
+@spaces.GPU(duration=240)
 def _train(uploaded_jsonl: str | None) -> str:
     try:
-        return train_candidate(uploaded_jsonl)
+        return _train_candidate(uploaded_jsonl)
     except Exception as error:
         raise gr.Error(str(error)) from error
 
@@ -407,6 +394,7 @@ def _upload_evaluation_report(
     )
 
 
+@spaces.GPU(duration=240)
 def _evaluate_candidate(
     candidate_model_id: str,
 ) -> tuple[dict[str, Any], str, list[list[str]], list[list[str]], dict[str, Any]]:
@@ -428,7 +416,7 @@ def _evaluate_candidate(
         candidate_fingerprint = model_artifact_fingerprint(candidate_info)
         if not candidate_info.sha or not candidate_fingerprint:
             raise RuntimeError("تعذر تثبيت إصدار ملفات المرشح.")
-        responses = evaluate_candidate_responses(candidate_model_id, candidate_info.sha)
+        responses = _evaluate_candidate_responses(candidate_model_id, candidate_info.sha)
         latest_candidate_info = api_client.model_info(candidate_model_id, files_metadata=True)
         if model_artifact_fingerprint(latest_candidate_info) != candidate_fingerprint:
             raise RuntimeError("تغيرت ملفات المرشح أثناء التقييم؛ أعد تشغيل التقييم.")

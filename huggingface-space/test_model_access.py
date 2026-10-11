@@ -128,8 +128,9 @@ class SpaceAccessTests(unittest.TestCase):
 
     def test_gpu_callbacks_are_discoverable_from_space_entrypoint(self):
         self.assertEqual(self.app.generate.__spaces_gpu_duration__, 120)
-        self.assertEqual(self.app.evaluate_candidate_responses.__spaces_gpu_duration__, 240)
-        self.assertEqual(self.app.train_candidate.__spaces_gpu_duration__, 240)
+        self.assertEqual(self.app._respond.__spaces_gpu_duration__, 120)
+        self.assertEqual(self.app._train.__spaces_gpu_duration__, 240)
+        self.assertEqual(self.app._evaluate_candidate.__spaces_gpu_duration__, 240)
 
     def test_missing_space_api_secret_is_unavailable_and_does_not_generate(self):
         os.environ.pop("SPACE_API_TOKEN", None)

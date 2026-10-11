@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+.cache/
+candidate-output/
+training-output/
+quant_data/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt

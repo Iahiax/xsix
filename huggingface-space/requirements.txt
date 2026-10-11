@@ -1,0 +1,9 @@
+gradio>=5.28,<6
+spaces>=0.37
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30
+transformers>=4.51.3,<5
+accelerate>=1.6
+bitsandbytes>=0.45
+peft>=0.15
+huggingface_hub>=0.30

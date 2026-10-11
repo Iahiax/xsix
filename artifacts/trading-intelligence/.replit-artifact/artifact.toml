@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Unified Trading Intelligence"
+description = "Arabic-first trading research and simulation cockpit: multi-symbol analysis, risk controls, reproducible backtests, gated model retraining, Telegram-ready operations, and versioned project backups. Live order execution stays disabled until new credentials and safety gates are configured."
+version = "1.0.0"
+id = "artifacts/trading-intelligence"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22814
+
+[services.development]
+run = "pnpm --filter @workspace/trading-intelligence run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/trading-intelligence", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/trading-intelligence/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22814"
+BASE_PATH = "/"

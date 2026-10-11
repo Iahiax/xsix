@@ -1,0 +1,675 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Unified Trading Intelligence research and paper-trading API. Live trading is blocked until production credentials and safeguards are verified.
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: trading
+    description: Dashboard, market universe, simulation and trading controls
+  - name: research
+    description: Reproducible backtesting and gated retraining
+  - name: assistant
+    description: Arabic-first centralized research assistant
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /system/diagnostics:
+    get:
+      operationId: getSystemDiagnostics
+      tags: [health]
+      summary: Get a privacy-safe summary of recent server errors
+      responses:
+        "200":
+          description: Recent server-side failures without request bodies or secrets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemDiagnostics"
+  /trading/dashboard:
+    get:
+      operationId: getTradingDashboard
+      tags: [trading]
+      summary: Get the consolidated trading and system dashboard
+      responses:
+        "200":
+          description: Dashboard metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+  /trading/instruments:
+    get:
+      operationId: getTradingInstruments
+      tags: [trading]
+      summary: List the currently configured CFD instrument universe
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: assetClass
+          schema: { type: string, enum: [all, forex, indices, stocks, commodities, crypto] }
+        - in: query
+          name: timeframe
+          schema: { type: string, enum: [M1, M5, M15, H1, H4, D1] }
+      responses:
+        "200":
+          description: Filtered instrument snapshot
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Instrument" }
+  /trading/positions:
+    get:
+      operationId: getTradingPositions
+      tags: [trading]
+      summary: List open and recent paper positions
+      responses:
+        "200":
+          description: Position list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Position" }
+  /trading/positions/{positionId}/close:
+    post:
+      operationId: closePaperPosition
+      tags: [trading]
+      summary: Close a paper position
+      parameters:
+        - in: path
+          name: positionId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Closed paper position
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Position" }
+        "404": { description: Position not found }
+        "409": { description: Position is already closed or is not a paper position }
+  /trading/activities:
+    get:
+      operationId: getTradingActivities
+      tags: [trading]
+      summary: Get the recent system and risk event timeline
+      responses:
+        "200":
+          description: Recent events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Activity" }
+  /trading/settings:
+    get:
+      operationId: getTradingSettings
+      tags: [trading]
+      summary: Get paper trading and risk settings
+      responses:
+        "200":
+          description: Current settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TradingSettings" }
+    patch:
+      operationId: updateTradingSettings
+      tags: [trading]
+      summary: Update demo-mode risk limits and analysis preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TradingSettingsUpdate" }
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TradingSettings" }
+        "400": { description: Invalid risk setting }
+        "403": { description: Live mode is locked; only verified readiness gates may unlock it }
+  /trading/live-readiness:
+    get:
+      operationId: getLiveReadiness
+      tags: [trading]
+      summary: Explain why live trading is or is not ready
+      responses:
+        "200":
+          description: Explicit live trading readiness gates
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LiveReadiness" }
+  /trading/capital/account:
+    get:
+      operationId: getCapitalAccount
+      tags: [trading]
+      summary: Read the connected Capital.com account and open positions
+      description: Uses Capital.com session authentication, then read-only GET requests. No orders are submitted or changed.
+      responses:
+        "200":
+          description: Account snapshot with explicit connection state and no synthetic fallback
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CapitalAccountSnapshot" }
+  /trading/capital/markets:
+    get:
+      operationId: getCapitalMarkets
+      tags: [trading]
+      summary: Search live Capital.com market quotes
+      description: Searches the configured Capital.com environment with a read-only GET request.
+      parameters:
+        - in: query
+          name: searchTerm
+          required: false
+          schema: { type: string, maxLength: 80 }
+      responses:
+        "200":
+          description: Live quote search result or an explicit unavailable state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CapitalMarketsSnapshot" }
+  /trading/simulations:
+    post:
+      operationId: openPaperSimulation
+      tags: [trading]
+      summary: Open a paper-only position after applying risk and market shields
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaperOrderInput" }
+      responses:
+        "201":
+          description: Paper position opened
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Position" }
+        "400": { description: Invalid order parameters }
+        "409": { description: Risk shield rejected the paper order }
+  /trading/training:
+    get:
+      operationId: getTrainingStatus
+      tags: [research]
+      summary: Get retraining pipeline status and model registry
+      responses:
+        "200":
+          description: Pipeline status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrainingStatus" }
+  /trading/training/retrain:
+    post:
+      operationId: startRetraining
+      tags: [research]
+      summary: Queue a paper-only retraining and shadow evaluation run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RetrainInput" }
+      responses:
+        "202":
+          description: Retraining run queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrainingStatus" }
+        "409": { description: Another retraining run is already active }
+  /trading/backtests:
+    get:
+      operationId: getBacktests
+      tags: [research]
+      summary: List reproducible backtest runs
+      responses:
+        "200":
+          description: Backtest history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Backtest" }
+    post:
+      operationId: createBacktest
+      tags: [research]
+      summary: Run an explicitly marked illustrative backtest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BacktestInput" }
+      responses:
+        "201":
+          description: Backtest completed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Backtest" }
+        "400": { description: Invalid test window }
+  /trading/connectors:
+    get:
+      operationId: getConnectorStatus
+      tags: [trading]
+      summary: Get integration readiness without exposing credentials
+      responses:
+        "200":
+          description: Connector readiness checklist
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ConnectorStatus" }
+  /trading/live-market:
+    get:
+      operationId: getLiveMarket
+      tags: [trading]
+      summary: Get verified provider quotes without synthetic fallback
+      parameters:
+        - in: query
+          name: symbols
+          schema: { type: string, maxLength: 120 }
+          description: Comma-separated provider symbols, up to eight.
+      responses:
+        "200":
+          description: Provider state and live/delayed quote rows, or an explicit unavailable state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LiveMarketData" }
+        "400": { description: Invalid symbol list }
+  /trading/backups:
+    get:
+      operationId: getTradingBackups
+      tags: [trading]
+      summary: List versioned source and state snapshots stored in Google Drive
+      responses:
+        "200":
+          description: Available Drive checkpoints
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BackupSnapshot" }
+    post:
+      operationId: createTradingBackup
+      tags: [trading]
+      summary: Save a code and operational-state checkpoint to Google Drive
+      responses:
+        "201":
+          description: Drive checkpoint created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackupSnapshot" }
+        "503": { description: Google Drive connector is unavailable }
+  /assistant/chat:
+    post:
+      operationId: sendAssistantMessage
+      tags: [assistant]
+      summary: Ask the unified Arabic-first trading assistant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChatInput" }
+      responses:
+        "200":
+          description: Assistant response with explicit data provenance
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChatReply" }
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    SystemDiagnostics:
+      type: object
+      required: [state, windowMinutes, errorCount, lastErrorAt, recentErrors, checkedAt, retentionNote]
+      properties:
+        state: { type: string, enum: [healthy, attention] }
+        windowMinutes: { type: integer, minimum: 1 }
+        errorCount: { type: integer, minimum: 0 }
+        lastErrorAt: { type: [string, "null"], format: date-time }
+        recentErrors:
+          type: array
+          items: { $ref: "#/components/schemas/SystemErrorEvent" }
+        checkedAt: { type: string, format: date-time }
+        retentionNote: { type: string }
+    SystemErrorEvent:
+      type: object
+      required: [id, occurredAt, statusCode, method, path, requestId]
+      properties:
+        id: { type: string }
+        occurredAt: { type: string, format: date-time }
+        statusCode: { type: integer, minimum: 500, maximum: 599 }
+        method: { type: string }
+        path: { type: string }
+        requestId: { type: [string, "null"] }
+    Dashboard:
+      type: object
+      required: [equity, dailyPnl, dailyPnlPct, openPositions, winRate, maxDrawdown, dailyLossLimitPct, trackedSymbols, modelVersion, trainingProgress, tradingMode, liveTradingEnabled, dataSource, systemHealth, riskState, updatedAt]
+      properties:
+        equity: { type: [number, "null"] }
+        dailyPnl: { type: [number, "null"] }
+        dailyPnlPct: { type: [number, "null"] }
+        openPositions: { type: integer }
+        winRate: { type: [number, "null"] }
+        maxDrawdown: { type: [number, "null"] }
+        dailyLossLimitPct: { type: [number, "null"] }
+        trackedSymbols: { type: [integer, "null"] }
+        modelVersion: { type: string }
+        trainingProgress: { type: [integer, "null"] }
+        tradingMode: { type: string, enum: [read_only, live_locked] }
+        liveTradingEnabled: { type: boolean }
+        dataSource: { type: string, enum: [unavailable, capital_demo, capital_live] }
+        systemHealth: { type: string, enum: [healthy, attention, offline] }
+        riskState: { type: string, enum: [clear, guarded, halted] }
+        updatedAt: { type: string, format: date-time }
+    CapitalPosition:
+      type: object
+      required: [id, epic, name, direction, size, entryPrice, currentPrice, profitLoss, currency, openedAt, marketStatus]
+      properties:
+        id: { type: string }
+        epic: { type: string }
+        name: { type: string }
+        direction: { type: string, enum: [buy, sell] }
+        size: { type: [number, "null"] }
+        entryPrice: { type: [number, "null"] }
+        currentPrice: { type: [number, "null"] }
+        profitLoss: { type: [number, "null"] }
+        currency: { type: [string, "null"] }
+        openedAt: { type: [string, "null"] }
+        marketStatus: { type: [string, "null"] }
+    CapitalAccountSnapshot:
+      type: object
+      required: [state, environment, source, checkedAt, detail, accountIdSuffix, currency, balance, available, deposit, profitLoss, positions]
+      properties:
+        state: { type: string, enum: [connected, not_configured, unavailable, unauthorized] }
+        environment: { type: [string, "null"], enum: [live, demo, null] }
+        source: { type: string, enum: [Capital.com] }
+        checkedAt: { type: string, format: date-time }
+        detail: { type: string }
+        accountIdSuffix: { type: [string, "null"] }
+        currency: { type: [string, "null"] }
+        balance: { type: [number, "null"] }
+        available: { type: [number, "null"] }
+        deposit: { type: [number, "null"] }
+        profitLoss: { type: [number, "null"] }
+        positions:
+          type: array
+          items: { $ref: "#/components/schemas/CapitalPosition" }
+    CapitalMarket:
+      type: object
+      required: [epic, name, instrumentType, marketStatus, bid, offer, change, changePct, currency, updatedAt]
+      properties:
+        epic: { type: string }
+        name: { type: string }
+        instrumentType: { type: [string, "null"] }
+        marketStatus: { type: [string, "null"] }
+        bid: { type: [number, "null"] }
+        offer: { type: [number, "null"] }
+        change: { type: [number, "null"] }
+        changePct: { type: [number, "null"] }
+        currency: { type: [string, "null"] }
+        updatedAt: { type: [string, "null"] }
+    CapitalMarketsSnapshot:
+      type: object
+      required: [state, environment, source, checkedAt, detail, markets]
+      properties:
+        state: { type: string, enum: [connected, not_configured, unavailable, unauthorized] }
+        environment: { type: [string, "null"], enum: [live, demo, null] }
+        source: { type: string, enum: [Capital.com] }
+        checkedAt: { type: string, format: date-time }
+        detail: { type: string }
+        markets:
+          type: array
+          items: { $ref: "#/components/schemas/CapitalMarket" }
+    Instrument:
+      type: object
+      required: [symbol, name, assetClass, price, changePct, spread, volatility, maxLeverage, timeframe, regime, signal, confidence, dataSource]
+      properties:
+        symbol: { type: string }
+        name: { type: string }
+        assetClass: { type: string }
+        price: { type: number }
+        changePct: { type: number }
+        spread: { type: number }
+        volatility: { type: number }
+        maxLeverage: { type: number }
+        timeframe: { type: string }
+        regime: { type: string }
+        signal: { type: string, enum: [buy, sell, neutral] }
+        confidence: { type: number }
+        dataSource: { type: string, enum: [simulated, capital_demo, capital_live] }
+    Position:
+      type: object
+      required: [id, symbol, side, entryPrice, currentPrice, size, leverage, pnl, stopLoss, takeProfit, openedAt, status, mode]
+      properties:
+        id: { type: string }
+        symbol: { type: string }
+        side: { type: string, enum: [buy, sell] }
+        entryPrice: { type: [number, "null"] }
+        currentPrice: { type: [number, "null"] }
+        size: { type: [number, "null"] }
+        leverage: { type: [number, "null"] }
+        pnl: { type: [number, "null"] }
+        stopLoss: { type: [number, "null"] }
+        takeProfit: { type: [number, "null"] }
+        openedAt: { type: [string, "null"], format: date-time }
+        status: { type: string, enum: [open, closed] }
+        mode: { type: string, enum: [demo, live] }
+    Activity:
+      type: object
+      required: [id, type, title, detail, createdAt, severity]
+      properties:
+        id: { type: string }
+        type: { type: string }
+        title: { type: string }
+        detail: { type: string }
+        createdAt: { type: string, format: date-time }
+        severity: { type: string, enum: [info, success, warning, danger] }
+    TradingSettings:
+      type: object
+      required: [mode, startingBalance, maxRiskPerTradePct, dailyCircuitBreakerPct, maxDrawdownPct, maxConcurrentPositions, maxOpenSymbols, cooldownAfterLosses, useMarketShields, useMacroNewsFilter, allowAutoRetraining, liveTradingEnabled]
+      properties:
+        mode: { type: string, enum: [demo, live_locked] }
+        startingBalance: { type: number }
+        maxRiskPerTradePct: { type: number }
+        dailyCircuitBreakerPct: { type: number }
+        maxDrawdownPct: { type: number }
+        maxConcurrentPositions: { type: integer }
+        maxOpenSymbols: { type: integer }
+        cooldownAfterLosses: { type: integer }
+        useMarketShields: { type: boolean }
+        useMacroNewsFilter: { type: boolean }
+        allowAutoRetraining: { type: boolean }
+        liveTradingEnabled: { type: boolean }
+    TradingSettingsUpdate:
+      type: object
+      properties:
+        startingBalance: { type: number, minimum: 100 }
+        maxRiskPerTradePct: { type: number, minimum: 0.1, maximum: 1 }
+        dailyCircuitBreakerPct: { type: number, minimum: 0.5, maximum: 3 }
+        maxDrawdownPct: { type: number, minimum: 1, maximum: 10 }
+        maxConcurrentPositions: { type: integer, minimum: 1, maximum: 10 }
+        maxOpenSymbols: { type: integer, minimum: 1, maximum: 2 }
+        cooldownAfterLosses: { type: integer, minimum: 1, maximum: 10 }
+        useMarketShields: { type: boolean }
+        useMacroNewsFilter: { type: boolean }
+        allowAutoRetraining: { type: boolean }
+    LiveReadiness:
+      type: object
+      required: [ready, liveTradingEnabled, mode, blockers]
+      properties:
+        ready: { type: boolean }
+        liveTradingEnabled: { type: boolean }
+        mode: { type: string, enum: [demo, live_locked] }
+        blockers:
+          type: array
+          items: { type: string }
+    PaperOrderInput:
+      type: object
+      required: [symbol, side, riskPct, stopLossPct, takeProfitPct]
+      properties:
+        symbol: { type: string, minLength: 2 }
+        side: { type: string, enum: [buy, sell] }
+        riskPct: { type: number, minimum: 0.1, maximum: 1 }
+        stopLossPct: { type: number, exclusiveMinimum: 0 }
+        takeProfitPct: { type: number, exclusiveMinimum: 0 }
+        timeframe: { type: string, enum: [M1, M5, M15, H1, H4, D1] }
+    RetrainInput:
+      type: object
+      required: [universe, timeframe, validationWindowDays]
+      properties:
+        universe: { type: string, enum: [watchlist, forex, indices, stocks, all] }
+        timeframe: { type: string, enum: [M1, M5, M15, H1, H4, D1] }
+        validationWindowDays: { type: integer, minimum: 30, maximum: 730 }
+    TrainingStatus:
+      type: object
+      required: [status, stage, progress, currentVersion, candidateVersion, lastStartedAt, lastCompletedAt, shadowMinutes, challengerMetrics, championMetrics, guardrails, history]
+      properties:
+        status: { type: string, enum: [idle, queued, running, shadow, rejected, promoted, failed, blocked] }
+        stage: { type: string }
+        progress: { type: integer }
+        currentVersion: { type: string }
+        candidateVersion: { type: ["string", "null"] }
+        lastStartedAt: { type: ["string", "null"], format: date-time }
+        lastCompletedAt: { type: ["string", "null"], format: date-time }
+        shadowMinutes: { type: integer }
+        challengerMetrics:
+          type: [object, "null"]
+          required: [sharpe, maxDrawdown, profitFactor]
+          properties:
+            sharpe: { type: number }
+            maxDrawdown: { type: number }
+            profitFactor: { type: number }
+        championMetrics:
+          type: [object, "null"]
+          required: [sharpe, maxDrawdown, profitFactor]
+          properties:
+            sharpe: { type: number }
+            maxDrawdown: { type: number }
+            profitFactor: { type: number }
+        guardrails:
+          type: array
+          items: { type: string }
+        history:
+          type: array
+          items: { $ref: "#/components/schemas/Activity" }
+    BacktestInput:
+      type: object
+      required: [strategy, symbol, timeframe, windowDays, startingBalance]
+      properties:
+        strategy: { type: string, enum: [trend-breakout, mean-reversion, multi-factor, market-shielded] }
+        symbol: { type: string }
+        timeframe: { type: string, enum: [M1, M5, M15, H1, H4, D1] }
+        windowDays: { type: integer, minimum: 30, maximum: 1825 }
+        startingBalance: { type: number, minimum: 100 }
+    EquityPoint:
+      type: object
+      required: [date, equity]
+      properties:
+        date: { type: string }
+        equity: { type: number }
+    Backtest:
+      type: object
+      required: [id, strategy, symbol, timeframe, windowDays, startingBalance, returnPct, winRate, maxDrawdown, profitFactor, totalTrades, status, dataSource, equityCurve, createdAt]
+      properties:
+        id: { type: string }
+        strategy: { type: string }
+        symbol: { type: string }
+        timeframe: { type: string }
+        windowDays: { type: integer }
+        startingBalance: { type: number }
+        returnPct: { type: number }
+        winRate: { type: number }
+        maxDrawdown: { type: number }
+        profitFactor: { type: number }
+        totalTrades: { type: integer }
+        status: { type: string, enum: [completed, rejected] }
+        dataSource: { type: string, enum: [illustrative, capital_demo, historical] }
+        equityCurve:
+          type: array
+          items: { $ref: "#/components/schemas/EquityPoint" }
+        createdAt: { type: string, format: date-time }
+    ConnectorStatus:
+      type: object
+      required: [id, name, state, detail, requiredForLive]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        state: { type: string, enum: [connected, needs_credentials, not_configured, blocked] }
+        detail: { type: string }
+        requiredForLive: { type: boolean }
+    LiveMarketQuote:
+      type: object
+      required: [symbol, price, change, changePct, timestamp, freshness]
+      properties:
+        symbol: { type: string }
+        price: { type: number, exclusiveMinimum: 0 }
+        change: { type: ["number", "null"] }
+        changePct: { type: ["number", "null"] }
+        timestamp: { type: string, format: date-time }
+        freshness: { type: string, enum: [fresh, delayed, stale] }
+    LiveMarketData:
+      type: object
+      required: [state, provider, configured, quotes, errors, checkedAt]
+      properties:
+        state: { type: string, enum: [connected, not_configured, unavailable] }
+        provider: { type: ["string", "null"] }
+        configured: { type: boolean }
+        quotes:
+          type: array
+          items: { $ref: "#/components/schemas/LiveMarketQuote" }
+        errors:
+          type: array
+          items: { type: string }
+        checkedAt: { type: string, format: date-time }
+        sourceNote: { type: string }
+    BackupSnapshot:
+      type: object
+      required: [id, name, version, webViewLink, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        version: { type: string }
+        webViewLink: { type: string, format: uri }
+        createdAt: { type: string, format: date-time }
+    ChatInput:
+      type: object
+      required: [conversationId, message]
+      properties:
+        conversationId: { type: string, minLength: 8, maxLength: 100 }
+        message: { type: string, minLength: 1, maxLength: 4000 }
+        context: { type: string, enum: [general, risk, training, backtest, instruments] }
+    ChatReply:
+      type: object
+      required: [reply, source, suggestions]
+      properties:
+        reply: { type: string }
+        source: { type: string, enum: [local_model, local_model_unavailable] }
+        suggestions:
+          type: array
+          items: { type: string }
+

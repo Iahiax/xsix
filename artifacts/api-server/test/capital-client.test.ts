@@ -3,10 +3,9 @@ import { test } from "node:test";
 import { createCapitalReadOnlyClient } from "../src/lib/capital-client";
 
 const testEnv = {
-  CAPITAL_API_MODE: "demo",
   CAPITAL_API_KEY: "test-capital-key",
-  CAPITAL_IDENTIFIER: "test@example.invalid",
-  CAPITAL_PASSWORD: "test-password",
+  CAPITAL_EMAIL: "test@example.invalid",
+  CAPITAL_API_PASSWORD: "test-password",
 };
 
 test("Capital account reads authenticate once, use GET only for resources, and mask identifiers", async () => {
@@ -62,6 +61,7 @@ test("Capital account reads authenticate once, use GET only for resources, and m
   const second = await client.getAccountSnapshot();
 
   assert.equal(first.state, "connected");
+  assert.equal(first.environment, "demo");
   assert.equal(first.balance, 1200.5);
   assert.equal(first.positions[0]?.id, "••4321");
   assert.equal(first.accountIdSuffix, "7654");
@@ -69,6 +69,7 @@ test("Capital account reads authenticate once, use GET only for resources, and m
   assert.equal(requests.length, 3);
   assert.deepEqual(requests.map((request) => request.method).sort(), ["GET", "GET", "POST"]);
   assert.equal(requests[0]?.method, "POST");
+  assert.ok(requests[0]?.url.startsWith("https://demo-api-capital.backend-capital.com/"));
   assert.equal(JSON.parse(requests[0]?.body ?? "{}").identifier, "test@example.invalid");
   assert.doesNotMatch(JSON.stringify(first), /test-capital-key|test-password|deal-secret/);
 });

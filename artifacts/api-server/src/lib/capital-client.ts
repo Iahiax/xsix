@@ -138,11 +138,13 @@ export function createCapitalReadOnlyClient(options: CapitalClientOptions = {}) 
   function configuration():
     | { mode: CapitalMode; origin: string; apiKey: string; identifier: string; password: string }
     | null {
-    const modeValue = env.CAPITAL_API_MODE?.trim().toLowerCase();
+    // Start in the demo environment unless the operator explicitly chooses
+    // otherwise; this client only performs account and market reads.
+    const modeValue = env.CAPITAL_API_MODE?.trim().toLowerCase() || "demo";
     if (modeValue !== "live" && modeValue !== "demo") return null;
     const apiKey = env.CAPITAL_API_KEY?.trim();
-    const identifier = env.CAPITAL_IDENTIFIER?.trim();
-    const password = env.CAPITAL_PASSWORD;
+    const identifier = (env.CAPITAL_IDENTIFIER ?? env.CAPITAL_EMAIL)?.trim();
+    const password = env.CAPITAL_PASSWORD ?? env.CAPITAL_API_PASSWORD;
     if (!apiKey || !identifier || !password) return null;
     return { mode: modeValue, origin: origins[modeValue], apiKey, identifier, password };
   }

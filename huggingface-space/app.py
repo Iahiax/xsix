@@ -782,7 +782,7 @@ with gr.Blocks(title="مرصاد | نموذج المشروع") as demo:
         "قبل إنشاء النسخة المدرّبة ستبقى المحادثة مقفلة."
     )
     with gr.Tab("المحادثة"):
-        chatbot = gr.Chatbot(type="messages", height=480, label="محادثة النموذج")
+        chatbot = gr.Chatbot(height=480, label="محادثة النموذج")
         history_state = gr.State([])
         last_prompt = gr.State("")
         last_reply = gr.State("")

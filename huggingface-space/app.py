@@ -9,8 +9,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-import gradio as gr
 import spaces
+import gradio as gr
 from fastapi import FastAPI, Header, HTTPException, Request
 
 from arabic_evaluation import (
@@ -86,7 +86,7 @@ def _authorize_api(api_token: str) -> None:
         raise HTTPException(status_code=401, detail="رمز وصول API غير صالح.")
 
 
-api = FastAPI(title="Mersad project-trained model API")
+api = gr.Server(title="Mersad project-trained model API")
 
 
 @api.middleware("http")
@@ -1028,9 +1028,15 @@ with gr.Blocks(title="مرصاد | نموذج المشروع") as demo:
             "السجل مؤقت في ذاكرة Space؛ لا يضمن الاحتفاظ به بعد إعادة التشغيل أو الخمول."
         )
 
-app = gr.mount_gradio_app(api, demo, path="/")
+def launch_app() -> None:
+    """Start the UI and JSON API together through Gradio's ZeroGPU-aware server."""
+    demo.launch(
+        _app=api,
+        server_name="0.0.0.0",
+        server_port=int(os.getenv("PORT", "7860")),
+        show_error=False,
+    )
+
 
 if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "7860")))
+    launch_app()

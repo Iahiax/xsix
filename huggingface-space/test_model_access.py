@@ -43,6 +43,9 @@ class FakeFastAPI:
 
 
 class FakeComponent:
+    def __init__(self):
+        self.launch_calls = []
+
     def __enter__(self):
         return self
 
@@ -52,16 +55,17 @@ class FakeComponent:
     def __getattr__(self, _name):
         return lambda *_args, **_kwargs: self
 
+    def launch(self, *_args, **kwargs):
+        self.launch_calls.append(kwargs)
+        return self, "", ""
+
 
 class FakeGradio(types.ModuleType):
     Error = type("Error", (Exception,), {})
+    Server = None
 
     def __getattr__(self, _name):
         return lambda *_args, **_kwargs: FakeComponent()
-
-    @staticmethod
-    def mount_gradio_app(api, _demo, **_kwargs):
-        return api
 
 
 def install_app_import_stubs():
@@ -71,6 +75,7 @@ def install_app_import_stubs():
     fastapi.HTTPException = HttpException
     fastapi.Request = type("Request", (), {})
     gradio = FakeGradio("gradio")
+    gradio.Server = FakeFastAPI
     spaces = types.ModuleType("spaces")
 
     def gpu_decorator(**options):
@@ -131,6 +136,14 @@ class SpaceAccessTests(unittest.TestCase):
         self.assertEqual(self.app._respond.__spaces_gpu_duration__, 120)
         self.assertEqual(self.app._train.__spaces_gpu_duration__, 240)
         self.assertEqual(self.app._evaluate_candidate.__spaces_gpu_duration__, 240)
+
+    def test_gradio_launch_hosts_ui_and_api_on_one_server(self):
+        self.assertIsInstance(self.app.api, FakeFastAPI)
+        self.app.launch_app()
+        self.assertEqual(len(self.app.demo.launch_calls), 1)
+        launch_options = self.app.demo.launch_calls[0]
+        self.assertIs(launch_options["_app"], self.app.api)
+        self.assertEqual(launch_options["server_name"], "0.0.0.0")
 
     def test_missing_space_api_secret_is_unavailable_and_does_not_generate(self):
         os.environ.pop("SPACE_API_TOKEN", None)

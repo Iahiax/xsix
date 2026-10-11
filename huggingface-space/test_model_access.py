@@ -262,7 +262,7 @@ class SpaceAccessTests(unittest.TestCase):
                     "HF_WRITE_TOKEN": "test-write-token",
                 },
             ):
-                restored, status, rows, state = self.app._load_pending_evaluation_report(
+                restored, status, _prompt_rows, rows, state = self.app._load_pending_evaluation_report(
                     "team/model-candidate-123"
                 )
         self.assertEqual(restored, report)
@@ -326,16 +326,9 @@ class SpaceAccessTests(unittest.TestCase):
             "baseline_revision": "baseline-revision",
             "candidate": candidate,
         }
-        rows = [
-            [
-                case["case_id"],
-                case["semantic_review"]["guidance"],
-                case["response"],
-                "accepted",
-                "",
-            ]
-            for case in candidate["cases"]
-        ]
+        rows = self.app._review_table_rows(report)
+        for row in rows:
+            row[2] = "accepted"
         hub_api = sys.modules["huggingface_hub"].HfApi.return_value
         hub_api.model_info.return_value = SimpleNamespace(siblings=[])
         with patch.dict(
@@ -350,7 +343,7 @@ class SpaceAccessTests(unittest.TestCase):
             "model_artifact_fingerprint",
             return_value="artifact-fingerprint",
         ):
-            saved, _status, _rows, _state = self.app._save_semantic_review(
+            saved, _status, _prompt_rows, _review_rows, _state = self.app._save_semantic_review(
                 "team/model-candidate-123",
                 rows,
                 report,

@@ -37,8 +37,8 @@ from quant_engine import (
 from quant_store import quant_store
 from model_runtime import (
     PROJECT_MODEL_ID,
-    PROJECT_MODEL_REVISION,
     SAFETY_SYSTEM_PROMPT,
+    evaluation_baseline_identity,
     evaluate_candidate_responses as _evaluate_candidate_responses,
     generate as _generate_model_response,
     model_status,
@@ -300,7 +300,8 @@ def _respond(
     return "", updated, updated, message.strip(), reply
 
 
-def _save_correction(prompt: str, correction: str) -> str:
+def _save_correction(prompt: str, correction: str, request: gr.Request) -> str:
+    _require_semantic_reviewer(request)
     if not prompt.strip() or not correction.strip():
         raise gr.Error("أرسل سؤالاً أولاً ثم اكتب الإجابة المصححة.")
     try:
@@ -311,7 +312,8 @@ def _save_correction(prompt: str, correction: str) -> str:
 
 
 @spaces.GPU(duration=240)
-def _train(uploaded_jsonl: str | None) -> str:
+def _train(uploaded_jsonl: str | None, request: gr.Request) -> str:
+    _require_semantic_reviewer(request)
     try:
         return _train_candidate(uploaded_jsonl)
     except Exception as error:
@@ -397,14 +399,14 @@ def _upload_evaluation_report(
 @spaces.GPU(duration=240)
 def _evaluate_candidate(
     candidate_model_id: str,
+    request: gr.Request,
 ) -> tuple[dict[str, Any], str, list[list[str]], list[list[str]], dict[str, Any]]:
+    _require_semantic_reviewer(request)
     candidate_model_id = candidate_model_id.strip()
     candidate_prefix = os.getenv("CANDIDATE_MODEL_REPO_PREFIX", "").strip().rstrip("/")
     write_token = os.getenv("HF_WRITE_TOKEN") or os.getenv("HF_TOKEN")
     if not candidate_prefix or not candidate_model_id.startswith(f"{candidate_prefix}-candidate-"):
         raise gr.Error("أدخل معرف مرشح أنشأه تدريب مرصاد ضمن بادئة المستودع المضبوطة.")
-    if not PROJECT_MODEL_ID:
-        raise gr.Error("اضبط PROJECT_MODEL_ID الحالي أولاً كي تتم مقارنة المرشح بالنموذج الحالي.")
     if candidate_model_id == PROJECT_MODEL_ID:
         raise gr.Error("يجب أن يكون المرشح مختلفاً عن النموذج الحالي.")
     if not write_token:
@@ -413,9 +415,12 @@ def _evaluate_candidate(
     try:
         api_client = HfApi(token=write_token)
         candidate_info = api_client.model_info(candidate_model_id, files_metadata=True)
+        if getattr(candidate_info, "private", False) is not True:
+            raise RuntimeError("يجب أن يكون مستودع المرشح خاصاً لحماية أوزانه وتقرير التقييم.")
         candidate_fingerprint = model_artifact_fingerprint(candidate_info)
         if not candidate_info.sha or not candidate_fingerprint:
             raise RuntimeError("تعذر تثبيت إصدار ملفات المرشح.")
+        baseline = evaluation_baseline_identity()
         responses = _evaluate_candidate_responses(candidate_model_id, candidate_info.sha)
         latest_candidate_info = api_client.model_info(candidate_model_id, files_metadata=True)
         if model_artifact_fingerprint(latest_candidate_info) != candidate_fingerprint:
@@ -428,8 +433,8 @@ def _evaluate_candidate(
             "candidate_model_id": candidate_model_id,
             "candidate_revision": candidate_info.sha,
             "candidate_artifact_fingerprint": candidate_fingerprint,
-            "baseline_model_id": PROJECT_MODEL_ID,
-            "baseline_revision": PROJECT_MODEL_REVISION,
+            "baseline_model_id": baseline["model_id"],
+            "baseline_revision": baseline["revision"],
             "evaluated_at": datetime.now(timezone.utc).isoformat(),
             "candidate": candidate_evaluation,
             "baseline": baseline_evaluation,
@@ -467,7 +472,9 @@ def _evaluate_candidate(
 
 def _load_pending_evaluation_report(
     candidate_model_id: str,
+    request: gr.Request,
 ) -> tuple[dict[str, Any], str, list[list[str]], list[list[str]], dict[str, Any]]:
+    _require_semantic_reviewer(request)
     candidate_model_id = candidate_model_id.strip()
     candidate_prefix = os.getenv("CANDIDATE_MODEL_REPO_PREFIX", "").strip().rstrip("/")
     write_token = os.getenv("HF_WRITE_TOKEN") or os.getenv("HF_TOKEN")
@@ -479,6 +486,8 @@ def _load_pending_evaluation_report(
     try:
         api_client = HfApi(token=write_token)
         candidate_info = api_client.model_info(candidate_model_id, files_metadata=True)
+        if getattr(candidate_info, "private", False) is not True:
+            raise RuntimeError("يجب أن يكون مستودع المرشح خاصاً لحماية تقريره.")
         current_fingerprint = model_artifact_fingerprint(candidate_info)
         if not candidate_info.sha or not current_fingerprint:
             raise RuntimeError("تعذر تثبيت إصدار ملفات المرشح.")
@@ -520,16 +529,16 @@ def _load_pending_evaluation_report(
 def _require_semantic_reviewer(request: gr.Request) -> dict[str, Any]:
     username = getattr(request, "username", None)
     if not isinstance(username, str) or not username.strip():
-        raise gr.Error("سجّل الدخول إلى Hugging Face بحساب مخوّل لحفظ المراجعة.")
+        raise gr.Error("سجّل الدخول إلى Hugging Face بحساب مخوّل لإدارة مرشحي النموذج.")
     allowed_usernames = {
         name.strip().casefold()
         for name in os.getenv("SEMANTIC_REVIEWER_USERNAMES", "").split(",")
         if name.strip()
     }
     if not allowed_usernames:
-        raise gr.Error("لم تُضبط قائمة حسابات المراجعين المصرّح لهم في إعدادات Space.")
+        raise gr.Error("لم تُضبط قائمة حسابات المشرفين المصرّح لهم في إعدادات Space.")
     if username.strip().casefold() not in allowed_usernames:
-        raise gr.Error("حساب Hugging Face هذا غير مخوّل لمراجعة المرشحين.")
+        raise gr.Error("حساب Hugging Face هذا غير مخوّل لإدارة مرشحي النموذج.")
     return {
         "username": username.strip(),
         "provider": "huggingface_oauth",
@@ -761,6 +770,8 @@ def _save_semantic_review(
         }
         api_client = HfApi(token=write_token)
         current_info = api_client.model_info(candidate_model_id, files_metadata=True)
+        if getattr(current_info, "private", False) is not True:
+            raise gr.Error("يجب أن يبقى مستودع المرشح خاصاً؛ لم تُحفظ المراجعة.")
         current_fingerprint = model_artifact_fingerprint(current_info)
         if current_fingerprint != updated_report["candidate_artifact_fingerprint"]:
             raise RuntimeError("تغيرت ملفات المرشح بعد التقييم؛ أعد تشغيل التقييم.")
@@ -953,8 +964,8 @@ with gr.Blocks(title="مرصاد | مساعد أبحاث التداول", css=SP
                     outputs=feedback_status,
                 )
                 gr.Markdown(
-                    "لا تحفظ كلمات مرور أو مفاتيح أو بيانات حسابات. لا يُحفظ للتدريب إلا التصحيح "
-                    "الذي ترسله صراحةً. لا يُستخدم نموذج سحابي أو أساسي بديلاً عن نسخة المشروع."
+                    "حفظ التصحيح متاح لحساب Hugging Face المخوّل فقط. لا تحفظ كلمات مرور أو مفاتيح أو بيانات حسابات. "
+                    "لا يُحفظ للتدريب إلا التصحيح الذي ترسله صراحةً. لا يُستخدم نموذج سحابي أو أساسي بديلاً عن نسخة المشروع."
                 )
             with gr.Tab("المختبر الكمي"):
                 gr.Markdown(
@@ -1045,8 +1056,9 @@ with gr.Blocks(title="مرصاد | مساعد أبحاث التداول", css=SP
                 )
             with gr.Tab("التدريب"):
                 gr.Markdown(
-                    "إنشاء مرشح LoRA قصير ورفعه إلى مستودع خاص. يُستخدم Qwen3-8B أساساً للتدريب فقط، "
-                    "ولا يجيب عن المحادثة. لا ترقية تلقائية؛ يلزم تقييم مستقل قبل التفعيل."
+                    "إنشاء مرشح LoRA قصير ورفعه إلى مستودع خاص. ارفع أمثلة عربية مصححة بموافقتك. "
+                    "التدريب يدوي ومحدود بحصة ZeroGPU، ولا يجيب النموذج "
+                    "الأساسي عن المحادثة. أول مرشح يُقارن بالأساس المفتوح أثناء التقييم فقط؛ لا ترقية تلقائية."
                 )
                 training_file = gr.File(
                     label="ملف أمثلة JSONL اختياري",
@@ -1058,7 +1070,8 @@ with gr.Blocks(title="مرصاد | مساعد أبحاث التداول", css=SP
                 train_button.click(_train, inputs=training_file, outputs=training_status)
             with gr.Tab("التقييم والمراجعة"):
                 gr.Markdown(
-                    "شغّل مجموعة التقييم العربية الثابتة، ثم راجع كل إجابة دلالياً وسجّل القبول أو الرفض. "
+                    "شغّل مجموعة التقييم العربية الثابتة؛ يُقارن المرشح بالنموذج النشط، أو بالأساس المفتوح "
+                    "للمراجعة الأولية فقط إن لم توجد نسخة مرصاد نشطة. ثم راجع كل إجابة دلالياً وسجّل القبول أو الرفض. "
                     "تُسجّل هوية حساب Hugging Face الموثق؛ أي حالة حرجة مرفوضة أو غير مراجعة تمنع الترقية. "
                     "يُحفظ التقرير والمراجعة في مستودع المرشح الخاص. اجتياز التقييم لا يفعّل النموذج؛ "
                     "تغيير `PROJECT_MODEL_ID` خطوة يدوية."

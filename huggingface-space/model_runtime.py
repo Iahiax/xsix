@@ -4,6 +4,7 @@ import json
 import os
 import re
 import threading
+from contextlib import nullcontext
 from typing import Any
 
 from arabic_evaluation import (
@@ -14,7 +15,7 @@ from arabic_evaluation import (
 
 BASE_MODEL_ID = os.getenv("BASE_MODEL_ID", "Qwen/Qwen3-8B")
 PROJECT_MODEL_ID = os.getenv("PROJECT_MODEL_ID", "").strip()
-_read_token = os.getenv("HF_READ_TOKEN") or os.getenv("HF_TOKEN")
+_read_token = os.getenv("HF_READ_TOKEN") or os.getenv("HF_TOKEN") or os.getenv("HF_WRITE_TOKEN")
 SAFETY_SYSTEM_PROMPT = (
     "أنت النموذج الحواري الخاص بمشروع مرصاد. أجب بالعربية الواضحة. "
     "لا تدّع امتلاك بيانات سوق حية أو تنفيذ صفقات. ميّز بوضوح بين البيانات التركيبية والحقيقية، "
@@ -134,6 +135,20 @@ def model_status() -> dict[str, Any]:
     return {"ready": True, "state": "project_checkpoint_loaded"}
 
 
+def evaluation_baseline_identity() -> dict[str, str]:
+    """Return the approved project checkpoint or the open base used only offline for first-candidate review."""
+    if _promotion_approved and _model is not None and PROJECT_MODEL_ID and PROJECT_MODEL_REVISION:
+        return {"model_id": PROJECT_MODEL_ID, "revision": PROJECT_MODEL_REVISION}
+
+    from huggingface_hub import HfApi
+
+    base_info = HfApi(token=_read_token).model_info(BASE_MODEL_ID)
+    revision = getattr(base_info, "sha", None)
+    if not isinstance(revision, str) or not revision:
+        raise RuntimeError("تعذر تثبيت إصدار النموذج الأساسي لخط تقييم المرشح الأول.")
+    return {"model_id": BASE_MODEL_ID, "revision": revision}
+
+
 def _chat_prompt(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None,
@@ -247,51 +262,114 @@ def evaluate_candidate_responses(
     candidate_model_id: str,
     candidate_revision: str,
 ) -> dict[str, dict[str, str]]:
-    """Compare deterministic held-out responses without loading a second base model."""
-    if _model is None or _tokenizer is None:
-        raise RuntimeError("لا يمكن تقييم المرشح قبل تحميل النموذج الحالي.")
+    """Score a candidate against the active project model or, for bootstrapping, its open base only offline."""
     if not candidate_model_id.strip() or candidate_model_id == PROJECT_MODEL_ID:
         raise ValueError("يجب إدخال معرف مرشح مختلف عن النموذج الحالي.")
 
     with _model_lock:
-        previous_adapter = _model.active_adapter
-        if isinstance(previous_adapter, (list, tuple)):
-            previous_adapter = previous_adapter[0]
+        global _model, _tokenizer
+        use_project_baseline = bool(
+            _promotion_approved and _model is not None and _tokenizer is not None
+        )
+        bootstrap_attempted = False
+        candidate_loaded = False
+        previous_adapter: str | None = None
         candidate_adapter = "evaluation_candidate"
         try:
-            _model.load_adapter(
-                candidate_model_id,
-                adapter_name=candidate_adapter,
-                token=_read_token,
-                revision=candidate_revision,
-            )
+            if use_project_baseline:
+                previous_adapter = _model.active_adapter
+                if isinstance(previous_adapter, (list, tuple)):
+                    previous_adapter = previous_adapter[0]
+                _model.load_adapter(
+                    candidate_model_id,
+                    adapter_name=candidate_adapter,
+                    token=_read_token,
+                    revision=candidate_revision,
+                )
+                candidate_loaded = True
+            else:
+                bootstrap_attempted = True
+                import torch
+                from peft import PeftModel
+                from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+                quantization = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_compute_dtype=torch.bfloat16,
+                )
+                _tokenizer = AutoTokenizer.from_pretrained(
+                    BASE_MODEL_ID,
+                    token=_read_token,
+                    trust_remote_code=False,
+                )
+                if _tokenizer.pad_token is None:
+                    _tokenizer.pad_token = _tokenizer.eos_token
+                base = AutoModelForCausalLM.from_pretrained(
+                    BASE_MODEL_ID,
+                    quantization_config=quantization,
+                    device_map={"": "cuda:0"},
+                    token=_read_token,
+                    trust_remote_code=False,
+                )
+                _model = PeftModel.from_pretrained(
+                    base,
+                    candidate_model_id,
+                    token=_read_token,
+                    revision=candidate_revision,
+                )
+                _model.eval()
+
             responses: dict[str, dict[str, str]] = {"baseline": {}, "candidate": {}}
-            for adapter_name, response_key in (
-                (previous_adapter, "baseline"),
-                (candidate_adapter, "candidate"),
-            ):
-                _model.set_adapter(adapter_name)
-                for case in EVALUATION_CASES:
-                    prompts = [
-                        (case["id"], case["prompt"]),
-                        *[
-                            (
-                                f"{case['id']}::{variant['id']}",
-                                variant["prompt"],
-                            )
-                            for variant in case.get("prompt_variants", [])
-                        ],
-                    ]
-                    for response_id, prompt in prompts:
-                        result = _generate_loaded_model(
-                            [
-                                {"role": "system", "content": SAFETY_SYSTEM_PROMPT},
-                                {"role": "user", "content": prompt},
+
+            def score(response_key: str, disabled_adapter: bool = False) -> None:
+                context = _model.disable_adapter() if disabled_adapter else nullcontext()
+                with context:
+                    for case in EVALUATION_CASES:
+                        prompts = [
+                            (case["id"], case["prompt"]),
+                            *[
+                                (
+                                    f"{case['id']}::{variant['id']}",
+                                    variant["prompt"],
+                                )
+                                for variant in case.get("prompt_variants", [])
                             ],
-                            max_new_tokens=128,
-                            temperature=0,
-                        )
-                        responses[response_key][response_id] = result["content"]
+                        ]
+                        for response_id, prompt in prompts:
+                            result = _generate_loaded_model(
+                                [
+                                    {"role": "system", "content": SAFETY_SYSTEM_PROMPT},
+                                    {"role": "user", "content": prompt},
+                                ],
+                                max_new_tokens=128,
+                                temperature=0,
+                            )
+                            responses[response_key][response_id] = result["content"]
+
+            if use_project_baseline:
+                _model.set_adapter(previous_adapter)
+                score("baseline")
+                _model.set_adapter(candidate_adapter)
+                score("candidate")
+            else:
+                # The base is loaded solely for offline comparison and is discarded below;
+                # generate() remains blocked until a reviewed candidate is promoted.
+                score("baseline", disabled_adapter=True)
+                score("candidate")
             return responses
         finally:
-            _model.set_adapter(previous_adapter)
+            if bootstrap_attempted:
+                _model = None
+                _tokenizer = None
+                try:
+                    import torch
+
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+            elif use_project_baseline and previous_adapter is not None and _model is not None:
+                _model.set_adapter(previous_adapter)
+                if candidate_loaded:
+                    _model.delete_adapter(candidate_adapter)

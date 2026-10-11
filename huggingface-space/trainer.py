@@ -159,7 +159,7 @@ def train_candidate(uploaded_jsonl: str | None = None) -> str:
         TrainingArguments,
     )
 
-    read_token = os.getenv("HF_READ_TOKEN") or os.getenv("HF_TOKEN")
+    read_token = os.getenv("HF_READ_TOKEN") or os.getenv("HF_TOKEN") or write_token
     tokenizer = AutoTokenizer.from_pretrained(
         BASE_MODEL_ID,
         token=read_token,

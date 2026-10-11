@@ -5,6 +5,7 @@ import sys
 import tempfile
 import types
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -90,12 +91,16 @@ def install_app_import_stubs():
     huggingface_hub.HfApi = Mock()
     huggingface_hub.hf_hub_download = Mock()
     runtime = types.ModuleType("model_runtime")
+    runtime.BASE_MODEL_ID = "Qwen/Qwen3-8B"
     runtime.PROJECT_MODEL_ID = "private/project-model"
     runtime.PROJECT_MODEL_REVISION = ""
     runtime.SAFETY_SYSTEM_PROMPT = "test system prompt"
     runtime.model_status = Mock(return_value={"ready": True, "state": "project_checkpoint_loaded"})
+    runtime.evaluation_baseline_identity = Mock(
+        return_value={"model_id": "Qwen/Qwen3-8B", "revision": "base-revision"}
+    )
     runtime.generate = Mock(return_value={"content": "test reply", "tool_calls": []})
-    runtime.evaluate_candidate_responses = Mock()
+    runtime.evaluate_candidate_responses = Mock(return_value={"baseline": {}, "candidate": {}})
     trainer = types.ModuleType("trainer")
     trainer.train_candidate = Mock()
     feedback_store = types.ModuleType("feedback_store")
@@ -136,6 +141,80 @@ class SpaceAccessTests(unittest.TestCase):
         self.assertEqual(self.app._respond.__spaces_gpu_duration__, 120)
         self.assertEqual(self.app._train.__spaces_gpu_duration__, 240)
         self.assertEqual(self.app._evaluate_candidate.__spaces_gpu_duration__, 240)
+
+    def test_training_rejects_anonymous_or_non_allowlisted_users(self):
+        trainer = sys.modules["trainer"]
+        for username in (None, "untrusted-user"):
+            with self.subTest(username=username), patch.dict(
+                os.environ,
+                {
+                    "SEMANTIC_REVIEWER_USERNAMES": "owner-user",
+                    "CANDIDATE_MODEL_REPO_PREFIX": "team/model",
+                    "HF_WRITE_TOKEN": "test-write-token",
+                },
+            ):
+                with self.assertRaises(self.app.gr.Error):
+                    self.app._train(None, SimpleNamespace(username=username))
+        trainer.train_candidate.assert_not_called()
+
+    def test_first_candidate_can_be_evaluated_against_the_open_base_offline(self):
+        hub = sys.modules["huggingface_hub"]
+        hub_api = hub.HfApi.return_value
+        hub_api.model_info.return_value = SimpleNamespace(
+            sha="candidate-revision",
+            private=True,
+        )
+        self.app.model_artifact_fingerprint = Mock(return_value="candidate-fingerprint")
+        with patch.dict(
+            os.environ,
+            {
+                "CANDIDATE_MODEL_REPO_PREFIX": "team/model",
+                "HF_WRITE_TOKEN": "test-write-token",
+                "SEMANTIC_REVIEWER_USERNAMES": "owner-user",
+            },
+        ), patch.object(self.app, "_upload_evaluation_report") as upload:
+            report, _status, _prompts, _reviews, _state = self.app._evaluate_candidate(
+                "team/model-candidate-123",
+                SimpleNamespace(username="owner-user"),
+            )
+
+        self.runtime.evaluation_baseline_identity.assert_called_once()
+        self.runtime.evaluate_candidate_responses.assert_called_once_with(
+            "team/model-candidate-123",
+            "candidate-revision",
+        )
+        self.assertEqual(report["baseline_model_id"], "Qwen/Qwen3-8B")
+        self.assertEqual(report["baseline_revision"], "base-revision")
+        upload.assert_called_once()
+
+    def test_candidate_evaluation_rejects_anonymous_users_before_gpu_work(self):
+        with patch.dict(
+            os.environ,
+            {
+                "CANDIDATE_MODEL_REPO_PREFIX": "team/model",
+                "SEMANTIC_REVIEWER_USERNAMES": "owner-user",
+            },
+        ):
+            with self.assertRaises(self.app.gr.Error):
+                self.app._evaluate_candidate(
+                    "team/model-candidate-123",
+                    SimpleNamespace(username=None),
+                )
+        self.runtime.evaluate_candidate_responses.assert_not_called()
+
+    def test_correction_saving_rejects_anonymous_users_before_dataset_write(self):
+        feedback_store = sys.modules["feedback_store"]
+        with patch.dict(
+            os.environ,
+            {"SEMANTIC_REVIEWER_USERNAMES": "owner-user"},
+        ):
+            with self.assertRaises(self.app.gr.Error):
+                self.app._save_correction(
+                    "prompt",
+                    "correction",
+                    SimpleNamespace(username=None),
+                )
+        feedback_store.save_correction.assert_not_called()
 
     def test_gradio_launch_hosts_ui_and_api_on_one_server(self):
         self.assertIsInstance(self.app.api, FakeFastAPI)
@@ -271,9 +350,89 @@ class SpaceAccessTests(unittest.TestCase):
         hub_api.model_info.assert_called_once()
         hub.hf_hub_download.assert_called_once()
 
+    def test_first_candidate_uses_base_weights_for_offline_scoring_then_discards_them(self):
+        class FakeTokenizer:
+            pad_token = None
+            eos_token = "eos"
+
+        class FakeProjectModel:
+            disabled_calls = 0
+
+            def eval(self):
+                return self
+
+            def disable_adapter(self):
+                self.disabled_calls += 1
+                return nullcontext()
+
+        fake_project_model = FakeProjectModel()
+        transformers = types.ModuleType("transformers")
+        transformers.BitsAndBytesConfig = lambda **kwargs: kwargs
+        transformers.AutoTokenizer = SimpleNamespace(
+            from_pretrained=Mock(return_value=FakeTokenizer())
+        )
+        transformers.AutoModelForCausalLM = SimpleNamespace(
+            from_pretrained=Mock(return_value=object())
+        )
+        peft = types.ModuleType("peft")
+        peft.PeftModel = SimpleNamespace(
+            from_pretrained=Mock(return_value=fake_project_model)
+        )
+        torch = types.ModuleType("torch")
+        torch.bfloat16 = "bf16"
+        torch.cuda = SimpleNamespace(empty_cache=Mock())
+        hub = types.ModuleType("huggingface_hub")
+        hub.HfApi = Mock()
+        spaces = types.ModuleType("spaces")
+        spaces.GPU = lambda **_kwargs: lambda function: function
+
+        module_name = "first_candidate_bootstrap_runtime_test"
+        with patch.dict(
+            sys.modules,
+            {
+                "huggingface_hub": hub,
+                "spaces": spaces,
+                "torch": torch,
+                "peft": peft,
+                "transformers": transformers,
+            },
+        ), patch.dict(
+            os.environ,
+            {"BASE_MODEL_ID": "Qwen/Qwen3-8B", "PROJECT_MODEL_ID": ""},
+            clear=False,
+        ):
+            os.environ.pop("HF_READ_TOKEN", None)
+            spec = importlib.util.spec_from_file_location(
+                module_name,
+                SPACE_DIR / "model_runtime.py",
+            )
+            runtime = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = runtime
+            spec.loader.exec_module(runtime)
+            runtime._generate_loaded_model = Mock(
+                return_value={"content": "offline score", "tool_calls": []}
+            )
+            responses = runtime.evaluate_candidate_responses(
+                "owner/model-candidate-1",
+                "candidate-revision",
+            )
+
+        self.assertIn("market-rsi-context", responses["baseline"])
+        self.assertIn("market-rsi-context", responses["candidate"])
+        self.assertGreater(fake_project_model.disabled_calls, 0)
+        transformers.AutoModelForCausalLM.from_pretrained.assert_called_once()
+        peft.PeftModel.from_pretrained.assert_called_once()
+        self.assertIsNone(runtime._model)
+        self.assertFalse(runtime.model_status()["ready"])
+        with self.assertRaises(RuntimeError):
+            runtime.generate([{"role": "user", "content": "hello"}])
+
     def test_saved_pending_report_loads_without_rerunning_candidate_scoring(self):
         hub = sys.modules["huggingface_hub"]
-        hub.HfApi.return_value.model_info.return_value = SimpleNamespace(sha="candidate-revision")
+        hub.HfApi.return_value.model_info.return_value = SimpleNamespace(
+            sha="candidate-revision",
+            private=True,
+        )
         report = {
             "candidate_model_id": "team/model-candidate-123",
             "candidate": {"summary": {"semantic_review_complete": False}},
@@ -290,10 +449,12 @@ class SpaceAccessTests(unittest.TestCase):
                 {
                     "CANDIDATE_MODEL_REPO_PREFIX": "team/model",
                     "HF_WRITE_TOKEN": "test-write-token",
+                    "SEMANTIC_REVIEWER_USERNAMES": "reviewer-test",
                 },
             ):
                 restored, status, _prompt_rows, rows, state = self.app._load_pending_evaluation_report(
-                    "team/model-candidate-123"
+                    "team/model-candidate-123",
+                    SimpleNamespace(username="reviewer-test"),
                 )
         self.assertEqual(restored, report)
         self.assertIn("دون إعادة تشغيل النموذج", status)
@@ -360,7 +521,10 @@ class SpaceAccessTests(unittest.TestCase):
         for row in rows:
             row[2] = "accepted"
         hub_api = sys.modules["huggingface_hub"].HfApi.return_value
-        hub_api.model_info.return_value = SimpleNamespace(siblings=[])
+        hub_api.model_info.return_value = SimpleNamespace(
+            siblings=[],
+            private=True,
+        )
         with patch.dict(
             os.environ,
             {

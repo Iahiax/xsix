@@ -830,9 +830,9 @@ body, .gradio-container {
   background: repeating-linear-gradient(135deg, transparent 0 13px, rgba(213,169,87,.11) 13px 14px);
   pointer-events: none;
 }
-.mersad-kicker { color: #d7bd80; font-size: 12px; font-weight: 600; letter-spacing: .11em; }
-.mersad-hero h1 { margin: 8px 0 7px; font-size: clamp(28px, 5vw, 43px); line-height: 1.2; font-weight: 700; }
-.mersad-hero p { max-width: 720px; margin: 0; color: #cbd7ce; font-size: 15px; line-height: 1.9; }
+.mersad-kicker { color: #d7bd80 !important; font-size: 12px; font-weight: 600; letter-spacing: .11em; }
+.mersad-hero h1 { margin: 8px 0 7px; color: #f3f3e9 !important; font-size: clamp(28px, 5vw, 43px); line-height: 1.2; font-weight: 700; }
+.mersad-hero p { max-width: 720px; margin: 0; color: #cbd7ce !important; font-size: 15px; line-height: 1.9; }
 .mersad-readiness {
   display: flex; align-items: center; gap: 12px; margin-top: 22px; padding: 12px 14px;
   width: fit-content; max-width: 100%; border: 1px solid rgba(228,235,222,.2);
@@ -840,8 +840,8 @@ body, .gradio-container {
 }
 .mersad-dot { width: 9px; height: 9px; flex: 0 0 9px; border-radius: 50%; background: #e0a178; }
 .mersad-dot.ready { background: #95c9a1; }
-.mersad-readiness strong { display: block; color: #fff8e9; font-size: 14px; }
-.mersad-readiness span { display: block; color: #c4d0c9; font-size: 12px; line-height: 1.65; }
+.mersad-readiness strong { display: block; color: #fff8e9 !important; font-size: 14px; }
+.mersad-readiness span { display: block; color: #c4d0c9 !important; font-size: 12px; line-height: 1.65; }
 .mersad-note {
   direction: rtl; border: 1px solid var(--mersad-line); border-right: 4px solid var(--mersad-gold);
   border-radius: 12px; background: var(--mersad-card); padding: 14px 16px;
@@ -933,9 +933,10 @@ with gr.Blocks(title="مرصاد | مساعد أبحاث التداول", css=SP
                     label="تصحيح اختياري",
                     placeholder="اكتب الإجابة المصححة التي توافق على حفظها لتدريب لاحق.",
                     lines=3,
+                    visible=_chat_ready,
                 )
-                save_button = gr.Button("حفظ التصحيح للتدريب اللاحق")
-                feedback_status = gr.Markdown()
+                save_button = gr.Button("حفظ التصحيح للتدريب اللاحق", interactive=_chat_ready, visible=_chat_ready)
+                feedback_status = gr.Markdown(visible=_chat_ready)
                 send.click(
                     _respond,
                     inputs=[message, history_state],

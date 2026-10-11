@@ -532,6 +532,69 @@ export const GetLiveMarketResponse = zod.object({
 
 
 /**
+ * Returns a fixed set of recent FRED observations. Missing credentials, missing observations, stale values, provider limits, and provider failures are reported explicitly without synthetic values.
+ * @summary Get verified economic indicators from FRED
+ */
+export const GetEconomicDataResponse = zod.object({
+  "state": zod.enum(['connected', 'partial', 'not_configured', 'unavailable']),
+  "provider": zod.enum(['FRED']),
+  "configured": zod.boolean(),
+  "indicators": zod.array(zod.object({
+  "seriesId": zod.string(),
+  "label": zod.string(),
+  "value": zod.number().nullable(),
+  "unit": zod.string(),
+  "observationDate": zod.coerce.date().nullable(),
+  "source": zod.enum(['FRED']),
+  "retrievedAt": zod.coerce.date(),
+  "freshness": zod.enum(['fresh', 'delayed', 'stale', 'unavailable']),
+  "error": zod.string().nullable()
+})),
+  "errors": zod.array(zod.string()),
+  "checkedAt": zod.coerce.date(),
+  "sourceNote": zod.string()
+})
+
+
+/**
+ * Returns profile and key-metric data for up to four symbols. Missing values remain null, provider errors are sanitized, and no synthetic values are supplied.
+ * @summary Get verified company fundamentals from Financial Modeling Prep
+ */
+export const getCompanyFundamentalsQuerySymbolsMax = 80;
+
+
+
+export const GetCompanyFundamentalsQueryParams = zod.object({
+  "symbols": zod.coerce.string().max(getCompanyFundamentalsQuerySymbolsMax).optional().describe('Comma-separated stock symbols, up to four. Defaults to AAPL, NVDA, TSLA, and MSFT.')
+})
+
+export const GetCompanyFundamentalsResponse = zod.object({
+  "state": zod.enum(['connected', 'partial', 'not_configured', 'unavailable']),
+  "provider": zod.enum(['FMP']),
+  "configured": zod.boolean(),
+  "fundamentals": zod.array(zod.object({
+  "symbol": zod.string(),
+  "companyName": zod.string().nullable(),
+  "sector": zod.string().nullable(),
+  "industry": zod.string().nullable(),
+  "currency": zod.string().nullable(),
+  "marketCap": zod.number().nullable(),
+  "peRatio": zod.number().nullable(),
+  "pbRatio": zod.number().nullable(),
+  "priceToSalesRatio": zod.number().nullable(),
+  "returnOnEquity": zod.number().nullable(),
+  "asOf": zod.coerce.date().nullable(),
+  "source": zod.enum(['FMP']),
+  "retrievedAt": zod.coerce.date(),
+  "freshness": zod.enum(['fresh', 'delayed', 'stale', 'unknown'])
+})),
+  "errors": zod.array(zod.string()),
+  "checkedAt": zod.coerce.date(),
+  "sourceNote": zod.string()
+})
+
+
+/**
  * @summary List versioned source and state snapshots stored in Google Drive
  */
 export const GetTradingBackupsResponseItem = zod.object({

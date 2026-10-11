@@ -676,6 +676,136 @@ export interface LiveMarketData {
   sourceNote?: string;
 }
 
+export type EconomicIndicatorSource = typeof EconomicIndicatorSource[keyof typeof EconomicIndicatorSource];
+
+
+export const EconomicIndicatorSource = {
+  FRED: 'FRED',
+} as const;
+
+export type EconomicIndicatorFreshness = typeof EconomicIndicatorFreshness[keyof typeof EconomicIndicatorFreshness];
+
+
+export const EconomicIndicatorFreshness = {
+  fresh: 'fresh',
+  delayed: 'delayed',
+  stale: 'stale',
+  unavailable: 'unavailable',
+} as const;
+
+export interface EconomicIndicator {
+  seriesId: string;
+  label: string;
+  /** @nullable */
+  value: number | null;
+  unit: string;
+  /** @nullable */
+  observationDate: string | null;
+  source: EconomicIndicatorSource;
+  retrievedAt: string;
+  freshness: EconomicIndicatorFreshness;
+  /** @nullable */
+  error: string | null;
+}
+
+export type EconomicDataState = typeof EconomicDataState[keyof typeof EconomicDataState];
+
+
+export const EconomicDataState = {
+  connected: 'connected',
+  partial: 'partial',
+  not_configured: 'not_configured',
+  unavailable: 'unavailable',
+} as const;
+
+export type EconomicDataProvider = typeof EconomicDataProvider[keyof typeof EconomicDataProvider];
+
+
+export const EconomicDataProvider = {
+  FRED: 'FRED',
+} as const;
+
+export interface EconomicData {
+  state: EconomicDataState;
+  provider: EconomicDataProvider;
+  configured: boolean;
+  indicators: EconomicIndicator[];
+  errors: string[];
+  checkedAt: string;
+  sourceNote: string;
+}
+
+export type CompanyFundamentalSource = typeof CompanyFundamentalSource[keyof typeof CompanyFundamentalSource];
+
+
+export const CompanyFundamentalSource = {
+  FMP: 'FMP',
+} as const;
+
+export type CompanyFundamentalFreshness = typeof CompanyFundamentalFreshness[keyof typeof CompanyFundamentalFreshness];
+
+
+export const CompanyFundamentalFreshness = {
+  fresh: 'fresh',
+  delayed: 'delayed',
+  stale: 'stale',
+  unknown: 'unknown',
+} as const;
+
+export interface CompanyFundamental {
+  symbol: string;
+  /** @nullable */
+  companyName: string | null;
+  /** @nullable */
+  sector: string | null;
+  /** @nullable */
+  industry: string | null;
+  /** @nullable */
+  currency: string | null;
+  /** @nullable */
+  marketCap: number | null;
+  /** @nullable */
+  peRatio: number | null;
+  /** @nullable */
+  pbRatio: number | null;
+  /** @nullable */
+  priceToSalesRatio: number | null;
+  /** @nullable */
+  returnOnEquity: number | null;
+  /** @nullable */
+  asOf: string | null;
+  source: CompanyFundamentalSource;
+  retrievedAt: string;
+  freshness: CompanyFundamentalFreshness;
+}
+
+export type CompanyFundamentalsState = typeof CompanyFundamentalsState[keyof typeof CompanyFundamentalsState];
+
+
+export const CompanyFundamentalsState = {
+  connected: 'connected',
+  partial: 'partial',
+  not_configured: 'not_configured',
+  unavailable: 'unavailable',
+} as const;
+
+export type CompanyFundamentalsProvider = typeof CompanyFundamentalsProvider[keyof typeof CompanyFundamentalsProvider];
+
+
+export const CompanyFundamentalsProvider = {
+  FMP: 'FMP',
+} as const;
+
+export interface CompanyFundamentals {
+  state: CompanyFundamentalsState;
+  provider: CompanyFundamentalsProvider;
+  configured: boolean;
+  fundamentals: CompanyFundamental[];
+  errors: string[];
+  checkedAt: string;
+  sourceNote: string;
+}
+
 export interface BackupSnapshot {
   id: string;
   name: string;
@@ -764,6 +894,14 @@ export type GetLiveMarketParams = {
 /**
  * Comma-separated provider symbols, up to eight.
  * @maxLength 120
+ */
+symbols?: string;
+};
+
+export type GetCompanyFundamentalsParams = {
+/**
+ * Comma-separated stock symbols, up to four. Defaults to AAPL, NVDA, TSLA, and MSFT.
+ * @maxLength 80
  */
 symbols?: string;
 };

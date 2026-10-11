@@ -294,6 +294,36 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/LiveMarketData" }
         "400": { description: Invalid symbol list }
+  /trading/economic-data:
+    get:
+      operationId: getEconomicData
+      tags: [trading]
+      summary: Get verified economic indicators from FRED
+      description: Returns a fixed set of recent FRED observations. Missing credentials, missing observations, stale values, provider limits, and provider failures are reported explicitly without synthetic values.
+      responses:
+        "200":
+          description: FRED indicators with provider timestamps and per-record freshness
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EconomicData" }
+  /trading/fundamentals:
+    get:
+      operationId: getCompanyFundamentals
+      tags: [trading]
+      summary: Get verified company fundamentals from Financial Modeling Prep
+      description: Returns profile and key-metric data for up to four symbols. Missing values remain null, provider errors are sanitized, and no synthetic values are supplied.
+      parameters:
+        - in: query
+          name: symbols
+          schema: { type: string, maxLength: 80 }
+          description: Comma-separated stock symbols, up to four. Defaults to AAPL, NVDA, TSLA, and MSFT.
+      responses:
+        "200":
+          description: FMP company fundamentals with source timestamps and per-record freshness
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompanyFundamentals" }
+        "400": { description: Invalid symbol list }
   /trading/backups:
     get:
       operationId: getTradingBackups
@@ -642,6 +672,67 @@ components:
         quotes:
           type: array
           items: { $ref: "#/components/schemas/LiveMarketQuote" }
+        errors:
+          type: array
+          items: { type: string }
+        checkedAt: { type: string, format: date-time }
+        sourceNote: { type: string }
+    EconomicIndicator:
+      type: object
+      required: [seriesId, label, value, unit, observationDate, source, retrievedAt, freshness, error]
+      properties:
+        seriesId: { type: string }
+        label: { type: string }
+        value: { type: ["number", "null"] }
+        unit: { type: string }
+        observationDate: { type: ["string", "null"], format: date }
+        source: { type: string, enum: [FRED] }
+        retrievedAt: { type: string, format: date-time }
+        freshness: { type: string, enum: [fresh, delayed, stale, unavailable] }
+        error: { type: ["string", "null"] }
+    EconomicData:
+      type: object
+      required: [state, provider, configured, indicators, errors, checkedAt, sourceNote]
+      properties:
+        state: { type: string, enum: [connected, partial, not_configured, unavailable] }
+        provider: { type: string, enum: [FRED] }
+        configured: { type: boolean }
+        indicators:
+          type: array
+          items: { $ref: "#/components/schemas/EconomicIndicator" }
+        errors:
+          type: array
+          items: { type: string }
+        checkedAt: { type: string, format: date-time }
+        sourceNote: { type: string }
+    CompanyFundamental:
+      type: object
+      required: [symbol, companyName, sector, industry, currency, marketCap, peRatio, pbRatio, priceToSalesRatio, returnOnEquity, asOf, source, retrievedAt, freshness]
+      properties:
+        symbol: { type: string }
+        companyName: { type: ["string", "null"] }
+        sector: { type: ["string", "null"] }
+        industry: { type: ["string", "null"] }
+        currency: { type: ["string", "null"] }
+        marketCap: { type: ["number", "null"] }
+        peRatio: { type: ["number", "null"] }
+        pbRatio: { type: ["number", "null"] }
+        priceToSalesRatio: { type: ["number", "null"] }
+        returnOnEquity: { type: ["number", "null"] }
+        asOf: { type: ["string", "null"], format: date }
+        source: { type: string, enum: [FMP] }
+        retrievedAt: { type: string, format: date-time }
+        freshness: { type: string, enum: [fresh, delayed, stale, unknown] }
+    CompanyFundamentals:
+      type: object
+      required: [state, provider, configured, fundamentals, errors, checkedAt, sourceNote]
+      properties:
+        state: { type: string, enum: [connected, partial, not_configured, unavailable] }
+        provider: { type: string, enum: [FMP] }
+        configured: { type: boolean }
+        fundamentals:
+          type: array
+          items: { $ref: "#/components/schemas/CompanyFundamental" }
         errors:
           type: array
           items: { type: string }

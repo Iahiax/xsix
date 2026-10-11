@@ -9,14 +9,14 @@ import {
   X, Zap, Layers3, CandlestickChart, Radio, Menu, ListChecks,
 } from 'lucide-react';
 import {
-  getGetBacktestsQueryKey, getGetCapitalMarketsQueryKey, getGetConnectorStatusQueryKey, getGetLiveMarketQueryKey, getGetLiveReadinessQueryKey,
+  getGetBacktestsQueryKey, getGetCapitalMarketsQueryKey, getGetCompanyFundamentalsQueryKey, getGetConnectorStatusQueryKey, getGetEconomicDataQueryKey, getGetLiveMarketQueryKey, getGetLiveReadinessQueryKey,
   getGetSystemDiagnosticsQueryKey,
   getGetTradingBackupsQueryKey,
   getGetTrainingStatusQueryKey, getGetTradingActivitiesQueryKey, getGetTradingDashboardQueryKey,
   getGetTradingSettingsQueryKey,
   useCreateTradingBackup, useGetBacktests,
   useGetTradingBackups,
-  useGetCapitalAccount, useGetCapitalMarkets, useGetConnectorStatus, useGetLiveMarket, useGetLiveReadiness, useGetTrainingStatus, useGetTradingActivities,
+  useGetCapitalAccount, useGetCapitalMarkets, useGetCompanyFundamentals, useGetConnectorStatus, useGetEconomicData, useGetLiveMarket, useGetLiveReadiness, useGetTrainingStatus, useGetTradingActivities,
   useGetTradingDashboard, useGetTradingSettings,
   useGetSystemDiagnostics, useHealthCheck, useSendAssistantMessage, useStartRetraining,
   useUpdateTradingSettings,
@@ -45,7 +45,7 @@ const moneyCurrency = (value: number | null | undefined, currency?: string | nul
   const code = currency && /^[A-Z]{3}$/.test(currency) ? currency : 'USD';
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: code, maximumFractionDigits: 2 }).format(value);
 };
-const dateShort = (value?: string | null) => value ? new Date(value).toLocaleString('ar', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+const dateShort = (value?: string | Date | null) => value ? (value instanceof Date ? value : new Date(value)).toLocaleString('ar', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 const sourceLabel = (source?: string) => source === 'capital_live' ? 'حساب Capital.com الحي' : source === 'capital_demo' ? 'حساب Capital.com التجريبي' : 'غير متاح';
 const nullableNumber = (value: number | null | undefined, digits = 2) => value == null ? '—' : fmt(value, digits);
 
@@ -115,7 +115,7 @@ function Shell() {
 function PageHeading({ eyebrow, title, detail, action }: { eyebrow: string; title: string; detail: string; action?: ReactNode }) {
   return <div className="page-heading"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{detail}</p></div>{action && <div className="heading-action">{action}</div>}</div>;
 }
-function Panel({ children, className = '' }: { children: ReactNode; className?: string }) { return <section className={`panel ${className}`}>{children}</section>; }
+function Panel({ children, className = '', ...props }: { children: ReactNode; className?: string; 'data-testid'?: string }) { return <section className={`panel ${className}`} {...props}>{children}</section>; }
 function PanelTitle({ title, eyebrow, action }: { title: string; eyebrow?: string; action?: React.ReactNode }) {
   return <div className="panel-title"><div>{eyebrow && <div className="eyebrow">{eyebrow}</div>}<h2>{title}</h2></div>{action}</div>;
 }
@@ -334,6 +334,19 @@ function AssistantPage() {
     { symbols: 'AAPL,NVDA,TSLA,SPY' },
     { query: { queryKey: getGetLiveMarketQueryKey({ symbols: 'AAPL,NVDA,TSLA,SPY' }), refetchInterval: 30_000, staleTime: 15_000 } },
   );
+  const economic = useGetEconomicData({
+    query: { queryKey: getGetEconomicDataQueryKey(), refetchInterval: 5 * 60_000, staleTime: 5 * 60_000 },
+  });
+  const fundamentals = useGetCompanyFundamentals(
+    { symbols: 'AAPL,NVDA,TSLA,MSFT' },
+    {
+      query: {
+        queryKey: getGetCompanyFundamentalsQueryKey({ symbols: 'AAPL,NVDA,TSLA,MSFT' }),
+        refetchInterval: 15 * 60_000,
+        staleTime: 15 * 60_000,
+      },
+    },
+  );
   const training = useGetTrainingStatus();
   const health = useHealthCheck();
   const diagnostics = useGetSystemDiagnostics({
@@ -370,6 +383,9 @@ function AssistantPage() {
     });
   };
   const statusLabel = (state?: string) => state === 'connected' ? 'جاهز' : state === 'needs_credentials' ? 'يحتاج بيانات اعتماد' : state === 'blocked' ? 'يتعذر الوصول أو التحقق' : state === 'not_configured' ? 'إعدادات ناقصة' : 'غير معروف';
+  const providerStateLabel = (state?: string, configured = false) => !configured ? 'غير مضبوط' : state === 'connected' ? 'متصل' : state === 'partial' ? 'بيانات جزئية' : 'غير متاح';
+  const providerStateTone = (state?: string, configured = false) => !configured ? 'neutral' : state === 'connected' ? 'green' : state === 'partial' ? 'gold' : 'red';
+  const freshnessLabel = (freshness: string) => freshness === 'fresh' ? 'حديث' : freshness === 'delayed' ? 'متأخر' : freshness === 'stale' ? 'قديم' : freshness === 'unavailable' ? 'غير متاح' : 'غير معروف';
   const modelTone = localReady ? 'green' : localModel?.state === 'blocked' ? 'red' : 'gold';
   const trainingData = training.data;
   const marketData = market.data;
@@ -485,6 +501,32 @@ function AssistantPage() {
               <div className="quote-source-note" data-testid="text-market-source">{marketData.sourceNote || 'المصدر حسب موصل السوق المسجل'} <span>فُحصت: {dateShort(marketData.checkedAt)}</span></div>
               <div className="quote-caveat">هذه أسعار أسهم أمريكية من Finnhub عند توفره، وليست أسعار عقود الفروقات لدى Capital.com.</div>
             </> : null}
+          </QueryState>
+        </Panel>
+        <Panel className="provider-data-panel" data-testid="panel-economic-data"><PanelTitle title="المؤشرات الاقتصادية" eyebrow="FRED · بيانات منشورة" action={<button className="icon-button tiny-button" aria-label="تحديث البيانات الاقتصادية" onClick={() => void economic.refetch()} data-testid="button-refresh-economic-data"><RefreshCw size={14} /></button>} />
+          <QueryState loading={economic.isLoading} error={economic.error} retry={() => void economic.refetch()} label="المؤشرات الاقتصادية">
+            {economic.data && <><div className="market-provider-line"><Tag tone={providerStateTone(economic.data.state, economic.data.configured)}>{providerStateLabel(economic.data.state, economic.data.configured)}</Tag><span>{economic.data.provider}</span></div>
+              {economic.data.indicators.length ? <div className="provider-record-list">{economic.data.indicators.map(indicator => <div className="provider-record" key={indicator.seriesId} data-testid={`economic-record-${indicator.seriesId}`}>
+                <div className="provider-record-head"><div><b>{indicator.label}</b><small>{indicator.seriesId} · {indicator.source}</small></div><div className="provider-record-value"><b>{indicator.value == null ? '—' : `${fmt(indicator.value, 2)} ${indicator.unit}`}</b><Tag tone={indicator.freshness === 'fresh' ? 'green' : indicator.freshness === 'delayed' ? 'gold' : indicator.freshness === 'stale' ? 'red' : 'neutral'}>{freshnessLabel(indicator.freshness)}</Tag></div></div>
+                <div className="provider-record-meta"><span>تاريخ الرصد: {dateShort(indicator.observationDate)}</span><span>جُلب: {dateShort(indicator.retrievedAt)}</span></div>
+                {indicator.error && <small className="provider-record-error">{indicator.error}</small>}
+              </div>)}</div> : <EmptyState title={economic.data.configured ? 'لا توجد مؤشرات متاحة' : 'مصدر FRED غير مضبوط'} detail={economic.data.errors[0] || 'لم يُرجع المصدر سجلات اقتصادية.'} />}
+              {economic.data.errors.length > 0 && economic.data.indicators.some(indicator => indicator.value != null) && <div className="provider-error-note">{economic.data.errors.join(' ')}</div>}
+              <div className="quote-source-note"><span>{economic.data.sourceNote}</span><span>آخر فحص: {dateShort(economic.data.checkedAt)}</span></div>
+            </>}
+          </QueryState>
+        </Panel>
+        <Panel className="provider-data-panel" data-testid="panel-company-fundamentals"><PanelTitle title="أساسيات الشركات" eyebrow="FMP · بيانات مالية" action={<button className="icon-button tiny-button" aria-label="تحديث أساسيات الشركات" onClick={() => void fundamentals.refetch()} data-testid="button-refresh-company-fundamentals"><RefreshCw size={14} /></button>} />
+          <QueryState loading={fundamentals.isLoading} error={fundamentals.error} retry={() => void fundamentals.refetch()} label="أساسيات الشركات">
+            {fundamentals.data && <><div className="market-provider-line"><Tag tone={providerStateTone(fundamentals.data.state, fundamentals.data.configured)}>{providerStateLabel(fundamentals.data.state, fundamentals.data.configured)}</Tag><span>{fundamentals.data.provider}</span></div>
+              {fundamentals.data.fundamentals.length ? <div className="company-fundamental-list">{fundamentals.data.fundamentals.map(company => <article className="company-fundamental" key={company.symbol} data-testid={`fundamental-record-${company.symbol}`}>
+                <div className="company-fundamental-head"><div><b className="instrument-ticker">{company.symbol}</b><span>{company.companyName || 'اسم الشركة غير متاح'}</span><small>{[company.sector, company.industry].filter(Boolean).join(' · ') || 'تصنيف النشاط غير متاح'}</small></div><Tag tone={company.freshness === 'fresh' ? 'green' : company.freshness === 'delayed' ? 'gold' : company.freshness === 'stale' ? 'red' : 'neutral'}>{freshnessLabel(company.freshness)}</Tag></div>
+                <div className="fundamental-metrics"><span>القيمة السوقية<b>{company.marketCap == null ? '—' : `${fmt(company.marketCap, 0)} ${company.currency || ''}`}</b></span><span>P/E<b>{nullableNumber(company.peRatio)}</b></span><span>P/B<b>{nullableNumber(company.pbRatio)}</b></span><span>P/S<b>{nullableNumber(company.priceToSalesRatio)}</b></span><span>ROE<b>{company.returnOnEquity == null ? '—' : fmt(company.returnOnEquity)}</b></span></div>
+                <div className="provider-record-meta"><span>تاريخ البيانات: {dateShort(company.asOf)}</span><span>المصدر: {company.source} · جُلب: {dateShort(company.retrievedAt)}</span></div>
+              </article>)}</div> : <EmptyState title={fundamentals.data.configured ? 'لا توجد أساسيات متاحة' : 'مصدر FMP غير مضبوط'} detail={fundamentals.data.errors[0] || 'لم يُرجع المصدر بيانات الشركات المطلوبة.'} />}
+              {fundamentals.data.errors.length > 0 && fundamentals.data.fundamentals.length > 0 && <div className="provider-error-note">{fundamentals.data.errors.join(' ')}</div>}
+              <div className="quote-source-note"><span>{fundamentals.data.sourceNote}</span><span>آخر فحص: {dateShort(fundamentals.data.checkedAt)}</span></div>
+            </>}
           </QueryState>
         </Panel>
         <Panel className="training-intel-panel"><PanelTitle title="التدريب والتقييم" eyebrow="سجل النموذج" action={<Link href="/training" className="text-link">التفاصيل <ChevronLeft size={13} /></Link>} />

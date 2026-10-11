@@ -5,6 +5,9 @@ import {
   CreateBacktestBody,
   GetBacktestsResponse,
   GetConnectorStatusResponse,
+  GetCompanyFundamentalsQueryParams,
+  GetCompanyFundamentalsResponse,
+  GetEconomicDataResponse,
   GetLiveMarketQueryParams,
   GetLiveMarketResponse,
   GetLiveReadinessResponse,
@@ -31,6 +34,72 @@ const liveQuoteCache = new Map<
   string,
   { expiresAt: number; quote: ReturnType<typeof GetLiveMarketResponse.parse>["quotes"][number] }
 >();
+type EconomicIndicator = ReturnType<typeof GetEconomicDataResponse.parse>["indicators"][number];
+type CompanyFundamental =
+  ReturnType<typeof GetCompanyFundamentalsResponse.parse>["fundamentals"][number];
+const economicIndicatorCache = new Map<
+  string,
+  { expiresAt: number; indicator: EconomicIndicator }
+>();
+const companyFundamentalCache = new Map<
+  string,
+  { expiresAt: number; fundamental: CompanyFundamental | null; error: string | null }
+>();
+
+const fredSeries = [
+  { seriesId: "CPIAUCSL", label: "مؤشر أسعار المستهلكين", unit: "مؤشر، غير معدل موسمياً", freshnessDays: 75 },
+  { seriesId: "UNRATE", label: "معدل البطالة", unit: "%", freshnessDays: 60 },
+  { seriesId: "FEDFUNDS", label: "سعر الفائدة الفيدرالي الفعلي", unit: "%", freshnessDays: 45 },
+  { seriesId: "GDP", label: "الناتج المحلي الإجمالي", unit: "مليار دولار، معدل سنوياً", freshnessDays: 150 },
+] as const;
+
+const fundamentalSymbols = ["AAPL", "NVDA", "TSLA", "MSFT"] as const;
+
+function nullableNumber(value: unknown): number | null {
+  if (typeof value !== "number" && (typeof value !== "string" || value.trim() === "")) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function dateOnly(value: unknown): Date | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function recordFromProvider(payload: unknown): Record<string, unknown> | null {
+  const candidate = Array.isArray(payload) ? payload[0] : payload;
+  return candidate && typeof candidate === "object" && !Array.isArray(candidate)
+    ? candidate as Record<string, unknown>
+    : null;
+}
+
+async function requestProviderJson(
+  url: URL,
+): Promise<{ ok: boolean; status: number | null; payload: unknown }> {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(7_000) });
+    if (!response.ok) return { ok: false, status: response.status, payload: null };
+    return { ok: true, status: response.status, payload: await response.json() };
+  } catch {
+    return { ok: false, status: null, payload: null };
+  }
+}
+
+function providerFreshness(
+  asOf: Date | null,
+  checkedAt: Date,
+  freshnessDays: number,
+): "fresh" | "delayed" | "stale" | "unknown" {
+  if (!asOf) return "unknown";
+  const ageDays = Math.max(0, checkedAt.getTime() - asOf.getTime()) / 86_400_000;
+  if (ageDays <= freshnessDays) return "fresh";
+  return ageDays <= freshnessDays * 2 ? "delayed" : "stale";
+}
 
 type Settings = ReturnType<typeof GetTradingSettingsResponse.parse>;
 type Activity = ReturnType<typeof GetTradingActivitiesResponse.parse>[number];
@@ -464,6 +533,266 @@ router.get("/trading/live-market", async (req, res): Promise<void> => {
         "وقت السعر من مزود البيانات؛ قد تختلف الإتاحة والسرعة حسب خطة Finnhub. الأسعار ليست تسعيرة CFD من Capital.com.",
     }),
   );
+});
+
+router.get("/trading/economic-data", async (req, res): Promise<void> => {
+  const checkedAt = new Date();
+  const apiKey = process.env.FRED_API_KEY?.trim();
+  if (!apiKey) {
+    const indicators = fredSeries.map((series) => ({
+      seriesId: series.seriesId,
+      label: series.label,
+      value: null,
+      unit: series.unit,
+      observationDate: null,
+      source: "FRED" as const,
+      retrievedAt: checkedAt,
+      freshness: "unavailable" as const,
+      error: "يتطلب FRED_API_KEY.",
+    }));
+    res.json(GetEconomicDataResponse.parse({
+      state: "not_configured",
+      provider: "FRED",
+      configured: false,
+      indicators,
+      errors: ["مصدر FRED غير مضبوط؛ لم تُعرض قيم بديلة."],
+      checkedAt,
+      sourceNote: "المصدر: Federal Reserve Bank of St. Louis (FRED).",
+    }));
+    return;
+  }
+
+  let rateLimited = false;
+  let requestFailed = false;
+  const indicators = await Promise.all(fredSeries.map(async (series) => {
+    const cached = economicIndicatorCache.get(series.seriesId);
+    if (cached && cached.expiresAt > Date.now()) return cached.indicator;
+
+    const retrievedAt = new Date();
+    let indicator: EconomicIndicator;
+    try {
+      const url = new URL("https://api.stlouisfed.org/fred/series/observations");
+      url.searchParams.set("series_id", series.seriesId);
+      url.searchParams.set("api_key", apiKey);
+      url.searchParams.set("file_type", "json");
+      url.searchParams.set("sort_order", "desc");
+      url.searchParams.set("limit", "1");
+      const response = await fetch(url, { signal: AbortSignal.timeout(7_000) });
+      if (!response.ok) {
+        if (response.status === 429) rateLimited = true;
+        requestFailed = true;
+        indicator = {
+          seriesId: series.seriesId,
+          label: series.label,
+          value: null,
+          unit: series.unit,
+          observationDate: null,
+          source: "FRED",
+          retrievedAt,
+          freshness: "unavailable",
+          error: response.status === 429
+            ? "بلغ مصدر FRED حد الطلبات؛ أعد المحاولة لاحقاً."
+            : "تعذر جلب هذا المؤشر من FRED.",
+        };
+      } else {
+        const payload: unknown = await response.json();
+        const observations = payload && typeof payload === "object"
+          ? (payload as Record<string, unknown>)["observations"]
+          : null;
+        const observation = Array.isArray(observations)
+          ? recordFromProvider(observations)
+          : null;
+        const value = nullableNumber(observation?.["value"]);
+        const observationDate = dateOnly(observation?.["date"]);
+        if (value == null || !observationDate) {
+          requestFailed = true;
+          indicator = {
+            seriesId: series.seriesId,
+            label: series.label,
+            value: null,
+            unit: series.unit,
+            observationDate: null,
+            source: "FRED",
+            retrievedAt,
+            freshness: "unavailable",
+            error: "لا يتوفر رصد حديث صالح لهذا المؤشر من FRED.",
+          };
+        } else {
+          const ageDays = Math.max(0, checkedAt.getTime() - observationDate.getTime()) / 86_400_000;
+          indicator = {
+            seriesId: series.seriesId,
+            label: series.label,
+            value,
+            unit: series.unit,
+            observationDate,
+            source: "FRED",
+            retrievedAt,
+            freshness: ageDays <= series.freshnessDays
+              ? "fresh"
+              : ageDays <= series.freshnessDays * 2
+                ? "delayed"
+                : "stale",
+            error: null,
+          };
+        }
+      }
+    } catch {
+      requestFailed = true;
+      indicator = {
+        seriesId: series.seriesId,
+        label: series.label,
+        value: null,
+        unit: series.unit,
+        observationDate: null,
+        source: "FRED",
+        retrievedAt,
+        freshness: "unavailable",
+        error: "تعذر الاتصال بمصدر FRED.",
+      };
+    }
+    economicIndicatorCache.set(series.seriesId, {
+      indicator,
+      expiresAt: Date.now() + (indicator.error ? 30_000 : 5 * 60_000),
+    });
+    return indicator;
+  }));
+
+  const errors = indicators
+    .filter((indicator) => indicator.error)
+    .map((indicator) => `${indicator.label}: ${indicator.error}`);
+  if (requestFailed) {
+    req.log.warn(
+      { provider: "fred", rateLimited, failedIndicators: errors.length },
+      "Economic indicator request was partially or fully unavailable",
+    );
+  }
+  const availableCount = indicators.filter((indicator) => indicator.value != null).length;
+  res.json(GetEconomicDataResponse.parse({
+    state: availableCount === 0 ? "unavailable" : errors.length ? "partial" : "connected",
+    provider: "FRED",
+    configured: true,
+    indicators,
+    errors,
+    checkedAt,
+    sourceNote: "المصدر: Federal Reserve Bank of St. Louis (FRED). حداثة كل مؤشر محسوبة من تاريخ الرصد المنشور.",
+  }));
+});
+
+router.get("/trading/fundamentals", async (req, res): Promise<void> => {
+  const parsed = GetCompanyFundamentalsQueryParams.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: "قائمة رموز الشركات غير صالحة." });
+    return;
+  }
+  const symbols = parsed.data.symbols?.trim()
+    ? [...new Set(parsed.data.symbols.split(",").map((symbol) => symbol.trim().toUpperCase()))]
+    : [...fundamentalSymbols];
+  if (
+    symbols.length > 4 ||
+    symbols.some((symbol) => !/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol))
+  ) {
+    res.status(400).json({ error: "يسمح بأربعة رموز أسهم كحد أقصى، وبصيغة رمز صالحة فقط." });
+    return;
+  }
+
+  const checkedAt = new Date();
+  const apiKey = process.env.FMP_API_KEY?.trim();
+  if (!apiKey) {
+    res.json(GetCompanyFundamentalsResponse.parse({
+      state: "not_configured",
+      provider: "FMP",
+      configured: false,
+      fundamentals: [],
+      errors: ["مصدر FMP غير مضبوط؛ أضف FMP_API_KEY لعرض بيانات الشركات."],
+      checkedAt,
+      sourceNote: "المصدر: Financial Modeling Prep (FMP). لا تُستخدم قيم بديلة.",
+    }));
+    return;
+  }
+
+  const cachedResults = await Promise.all(symbols.map(async (symbol) => {
+    const cached = companyFundamentalCache.get(symbol);
+    if (cached && cached.expiresAt > Date.now()) return cached;
+
+    const retrievedAt = new Date();
+    const profileUrl = new URL("https://financialmodelingprep.com/stable/profile");
+    profileUrl.searchParams.set("symbol", symbol);
+    profileUrl.searchParams.set("apikey", apiKey);
+    const metricsUrl = new URL("https://financialmodelingprep.com/stable/key-metrics");
+    metricsUrl.searchParams.set("symbol", symbol);
+    metricsUrl.searchParams.set("limit", "1");
+    metricsUrl.searchParams.set("apikey", apiKey);
+
+    const [profileResult, metricsResult] = await Promise.all([
+      requestProviderJson(profileUrl),
+      requestProviderJson(metricsUrl),
+    ]);
+    const profileStatus = profileResult.status;
+    const metricsStatus = metricsResult.status;
+    const profile = profileResult.ok ? recordFromProvider(profileResult.payload) : null;
+    const metrics = metricsResult.ok ? recordFromProvider(metricsResult.payload) : null;
+
+    const profileFailed = profileStatus === null || profileStatus >= 400 || profile === null;
+    const metricsFailed = metricsStatus === null || metricsStatus >= 400 || metrics === null;
+    const rateLimited = profileStatus === 429 || metricsStatus === 429;
+    const profileOrMetrics = profile ?? metrics;
+    let error: string | null = null;
+    if (profileFailed || metricsFailed) {
+      error = rateLimited
+        ? "بلغ مصدر FMP حد الطلبات؛ أعد المحاولة لاحقاً."
+        : `تعذر جلب بعض بيانات ${symbol} من FMP.`;
+    }
+    const asOf = dateOnly(metrics?.["date"]);
+    const hasAnyData = profileOrMetrics !== null;
+    const fundamental: CompanyFundamental | null = hasAnyData ? {
+      symbol,
+      companyName: nullableString(profile?.["companyName"] ?? profile?.["name"]),
+      sector: nullableString(profile?.["sector"]),
+      industry: nullableString(profile?.["industry"]),
+      currency: nullableString(profile?.["currency"]),
+      marketCap: nullableNumber(metrics?.["marketCap"] ?? profile?.["marketCap"]),
+      peRatio: nullableNumber(metrics?.["peRatio"]),
+      pbRatio: nullableNumber(metrics?.["pbRatio"]),
+      priceToSalesRatio: nullableNumber(metrics?.["priceToSalesRatio"]),
+      returnOnEquity: nullableNumber(metrics?.["returnOnEquity"]),
+      asOf,
+      source: "FMP",
+      retrievedAt,
+      freshness: providerFreshness(asOf, checkedAt, 150),
+    } : null;
+    const result = { fundamental, error };
+    companyFundamentalCache.set(symbol, {
+      ...result,
+      expiresAt: Date.now() + (error ? 45_000 : 15 * 60_000),
+    });
+    return result;
+  }));
+
+  const fundamentals = cachedResults.flatMap((result) => result.fundamental ? [result.fundamental] : []);
+  const errors = cachedResults.flatMap((result) => result.error ? [result.error] : []);
+  if (errors.length) {
+    req.log.warn(
+      {
+        provider: "fmp",
+        failedSymbols: errors.length,
+        rateLimited: errors.some((message) => message.includes("حد الطلبات")),
+      },
+      "Company fundamentals request was partially or fully unavailable",
+    );
+  }
+  res.json(GetCompanyFundamentalsResponse.parse({
+    state: fundamentals.length === 0
+      ? "unavailable"
+      : errors.length
+        ? "partial"
+        : "connected",
+    provider: "FMP",
+    configured: true,
+    fundamentals,
+    errors,
+    checkedAt,
+    sourceNote: "المصدر: Financial Modeling Prep (FMP). تاريخ الأساسيات يعكس تاريخ التقرير المنشور، لا وقت جلبه.",
+  }));
 });
 
 router.get("/trading/backups", async (req, res) => {

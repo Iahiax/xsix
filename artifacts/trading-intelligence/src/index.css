@@ -483,8 +483,8 @@
 .assistant-chat-room .chat-composer { margin: 0 15px; }
 .assistant-chat-room .chat-disclaimer { margin: 10px 17px 13px; }
 .assistant-chat-room .chat-message .chat-bubble { max-width: min(88%, 580px); }
-.assistant-side-stack { display: grid; grid-template-rows: auto 1fr; gap: 14px; min-width: 0; }
-.market-quotes-panel,.training-intel-panel { min-width: 0; }
+.assistant-side-stack { display: grid; grid-template-rows: repeat(4, auto); gap: 14px; min-width: 0; }
+.market-quotes-panel,.training-intel-panel,.provider-data-panel { min-width: 0; }
 .market-provider-line { display: flex; align-items: center; gap: 9px; margin: -4px 0 9px; color: hsl(var(--muted-foreground)); font-size: 9px; }
 .live-quote-list { display: grid; }
 .live-quote-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 49px; border-top: 1px solid hsl(var(--border) / .82); }
@@ -495,6 +495,24 @@
 .quote-source-note { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px; margin-top: 9px; color: hsl(var(--muted-foreground)); font-size: 8px; }
 .quote-caveat,.provider-error-note { margin-top: 9px; padding: 8px 9px; border-radius: 5px; background: hsl(var(--accent) / .14); color: hsl(37 36% 34%); font-size: 8px; line-height: 1.65; }
 .provider-error-note { background: hsl(var(--destructive) / .08); color: hsl(var(--destructive)); }
+.provider-record-list,.company-fundamental-list { display: grid; }
+.provider-record,.company-fundamental { padding: 9px 0; border-top: 1px solid hsl(var(--border) / .82); }
+.provider-record-head,.company-fundamental-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.provider-record-head > div:first-child,.company-fundamental-head > div:first-child { display: grid; gap: 3px; min-width: 0; }
+.provider-record-head b,.company-fundamental-head b { font-size: 9px; }
+.provider-record-head small,.company-fundamental-head small { color: hsl(var(--muted-foreground)); font-size: 8px; }
+.provider-record-value { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.provider-record-value > b { max-width: 155px; font-size: 9px; text-align: left; direction: ltr; }
+.provider-record-value .tag,.company-fundamental-head .tag { font-size: 7px; }
+.provider-record-meta { display: flex; flex-wrap: wrap; gap: 4px 11px; margin-top: 6px; color: hsl(var(--muted-foreground)); font-size: 7px; }
+.provider-record-error { display: block; margin-top: 5px; color: hsl(var(--destructive)); font-size: 8px; }
+.company-fundamental-head > div:first-child { grid-template-columns: auto 1fr; align-items: baseline; column-gap: 7px; }
+.company-fundamental-head .instrument-ticker { font-size: 9px; }
+.company-fundamental-head > div:first-child > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; }
+.company-fundamental-head small { grid-column: 1 / -1; }
+.fundamental-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px 5px; margin-top: 8px; padding: 8px; border-radius: 5px; background: hsl(var(--secondary) / .5); }
+.fundamental-metrics > span { display: grid; gap: 3px; color: hsl(var(--muted-foreground)); font-size: 7px; }
+.fundamental-metrics b { color: hsl(var(--foreground)); overflow-wrap: anywhere; font: 8px var(--app-font-mono); direction: ltr; text-align: right; }
 .training-mini-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: hsl(var(--muted-foreground)); font-size: 9px; }
 .mini-progress { height: 4px; margin: 11px 0 13px; overflow: hidden; border-radius: 8px; background: hsl(var(--border)); }
 .mini-progress span { display: block; height: 100%; border-radius: inherit; background: hsl(var(--primary)); transition: width .35s ease; }
@@ -547,7 +565,7 @@
   .assistant-control-grid,.assistant-lower-grid { grid-template-columns: 1fr; }
   .assistant-chat-room { min-height: 590px; }
   .assistant-chat-room .chat-thread { min-height: 360px; max-height: 470px; padding: 18px 13px; }
-  .assistant-side-stack { grid-template-rows: auto auto; }
+  .assistant-side-stack { grid-template-rows: repeat(4, auto); }
 }
 @media (max-width: 420px) {
   .control-banner h2 { font-size: 16px; }

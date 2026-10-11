@@ -28,9 +28,12 @@ import type {
   CapitalMarketsSnapshot,
   ChatInput,
   ChatReply,
+  CompanyFundamentals,
   ConnectorStatus,
   Dashboard,
+  EconomicData,
   GetCapitalMarketsParams,
+  GetCompanyFundamentalsParams,
   GetLiveMarketParams,
   GetTradingInstrumentsParams,
   HealthStatus,
@@ -1589,6 +1592,169 @@ export function useGetLiveMarket<TData = Awaited<ReturnType<typeof getLiveMarket
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetLiveMarketQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetEconomicDataUrl = () => {
+
+
+
+
+  return `/api/trading/economic-data`
+}
+
+/**
+ * Returns a fixed set of recent FRED observations. Missing credentials, missing observations, stale values, provider limits, and provider failures are reported explicitly without synthetic values.
+ * @summary Get verified economic indicators from FRED
+ */
+export const getEconomicData = async ( options?: Parameters<typeof customFetch>[1]): Promise<EconomicData> => {
+
+  return customFetch<EconomicData>(getGetEconomicDataUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetEconomicDataQueryKey = () => {
+    return [
+    `/api/trading/economic-data`
+    ] as const;
+    }
+
+
+export const getGetEconomicDataQueryOptions = <TData = Awaited<ReturnType<typeof getEconomicData>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEconomicData>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetEconomicDataQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getEconomicData>>> = ({ signal }) => getEconomicData({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getEconomicData>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetEconomicDataQueryResult = NonNullable<Awaited<ReturnType<typeof getEconomicData>>>
+export type GetEconomicDataQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get verified economic indicators from FRED
+ */
+
+export function useGetEconomicData<TData = Awaited<ReturnType<typeof getEconomicData>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEconomicData>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetEconomicDataQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetCompanyFundamentalsUrl = (params?: GetCompanyFundamentalsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/trading/fundamentals?${stringifiedParams}` : `/api/trading/fundamentals`
+}
+
+/**
+ * Returns profile and key-metric data for up to four symbols. Missing values remain null, provider errors are sanitized, and no synthetic values are supplied.
+ * @summary Get verified company fundamentals from Financial Modeling Prep
+ */
+export const getCompanyFundamentals = async (params?: GetCompanyFundamentalsParams, options?: Parameters<typeof customFetch>[1]): Promise<CompanyFundamentals> => {
+
+  return customFetch<CompanyFundamentals>(getGetCompanyFundamentalsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCompanyFundamentalsQueryKey = (params?: GetCompanyFundamentalsParams,) => {
+    return [
+    `/api/trading/fundamentals`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetCompanyFundamentalsQueryOptions = <TData = Awaited<ReturnType<typeof getCompanyFundamentals>>, TError = ErrorType<void>>(params?: GetCompanyFundamentalsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCompanyFundamentals>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCompanyFundamentalsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCompanyFundamentals>>> = ({ signal }) => getCompanyFundamentals(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCompanyFundamentals>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCompanyFundamentalsQueryResult = NonNullable<Awaited<ReturnType<typeof getCompanyFundamentals>>>
+export type GetCompanyFundamentalsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get verified company fundamentals from Financial Modeling Prep
+ */
+
+export function useGetCompanyFundamentals<TData = Awaited<ReturnType<typeof getCompanyFundamentals>>, TError = ErrorType<void>>(
+ params?: GetCompanyFundamentalsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCompanyFundamentals>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCompanyFundamentalsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
